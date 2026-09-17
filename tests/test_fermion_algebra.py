@@ -388,3 +388,23 @@ def test_model_build_constructs_fockspace_once(monkeypatch):
 
     assert model.Nbasis == 6
     assert calls == 1
+
+
+
+def test_fockstate_basis_is_materialized_lazily():
+    model = make_model(neff=6, nf=3)
+
+    assert model.fockspace._basis is None
+    assert model.fockspace.ls == [
+        7, 11, 13, 14, 19, 21, 22, 25, 26, 28,
+        35, 37, 38, 41, 42, 44, 49, 50, 52, 56,
+    ]
+
+    basis = model.fockspace.basis
+
+    assert model.fockspace._basis is basis
+    assert [state.state for state in basis] == model.fockspace.ls
+    assert [state.index for state in basis] == list(range(model.Nbasis))
+
+    # Repeated access must reuse the same materialized basis.
+    assert model.fockspace.basis is basis

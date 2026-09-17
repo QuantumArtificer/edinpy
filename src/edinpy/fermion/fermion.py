@@ -561,6 +561,7 @@ class fermionspace:
         self._Neff = _Neff
         self._Nf = _Nf
         self.ls = None
+        self._basis = None
 
     def __contains__(self, s):
         
@@ -573,17 +574,40 @@ class fermionspace:
     contains = __contains__
     
     def build(self):
-        '''
-        Build the fock space basis vectors.
-        '''
-        self.basis  = [0 for i in range(self._Nbasis)]
-        self.ls  = [0 for i in range(self._Nbasis)]
-        self.basis[0] = fockstate( self.firstvector(), index = 0 ) # calculate the first state (state with lowest integer representation)
-        self.ls[0] = self.basis[0].state
-        # calculate the remaining states as lexicographical bit permutations
-        for i in range(1,self._Nbasis):
-            self.basis[i] = fockstate( self.nextvector( self.basis[i-1].state ), index = i)
-            self.ls[i] = self.basis[i].state
+        """
+        Build the integer representation of the fixed-particle Fock basis.
+
+        Fock-state objects are materialized lazily when ``basis`` is first
+        accessed. This avoids unnecessary object construction for optimized
+        Hamiltonian paths that operate directly on integer occupation states.
+        """
+        self.ls = [0 for _ in range(self._Nbasis)]
+
+        if self._Nbasis == 0:
+            self._basis = []
+            return
+
+        self.ls[0] = self.firstvector()
+
+        for i in range(1, self._Nbasis):
+            self.ls[i] = self.nextvector(self.ls[i - 1])
+
+        self._basis = None
+
+    @property
+    def basis(self):
+        """Fock-state representation of the integer basis."""
+        if self._basis is None:
+            self._basis = [
+                fockstate(state, index=index)
+                for index, state in enumerate(self.ls)
+            ]
+
+        return self._basis
+
+    @basis.setter
+    def basis(self, basis):
+        self._basis = basis
         
     def firstvector(self):
         """ 
@@ -1542,11 +1566,10 @@ class hamiltonian:
                 dtype=csingle,
             )
 
-            matrix.sum_duplicates()
+            if not compiled.vectorized_simple_terms:
+                matrix.sum_duplicates()
 
-            # Preserve the historical CSR matrix representation exposed
-            # through Hamiltonian.sparse.
-            self.sparse_matrix = matrix.tocsr()
+            self.sparse_matrix = matrix
             return
 
         rows = []

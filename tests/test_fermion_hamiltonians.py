@@ -814,3 +814,454 @@ def test_grouped_hopping_preserves_asymmetric_complex_coefficients():
         expected,
         atol=1e-6,
     )
+
+
+
+def test_specialized_hopping_paths_match_reference():
+    """Parity-free and signed hopping paths must reproduce Fock algebra."""
+    from edinpy.fermion._execution import compile_operator
+
+    model = make_model(neff=4, nf=2)
+    c = [edf.Annihilation(i) for i in range(4)]
+
+    # Simple parity-free symmetric pair: modes 0 <-> 1.
+    t01 = -1.3
+
+    # Parity-free asymmetric/complex pair: modes 1 <-> 2.
+    t12_forward = 0.7 + 0.4j
+    t12_backward = -0.2 + 0.3j
+
+    # Long-range pair requiring a fermionic parity sign.
+    t03 = 0.9
+
+    expression = (
+        t01 * (c[0].dag * c[1] + c[1].dag * c[0])
+        + t12_forward * c[1].dag * c[2]
+        + t12_backward * c[2].dag * c[1]
+        + t03 * (c[0].dag * c[3] + c[3].dag * c[0])
+    )
+
+    compiled = compile_operator(expression)
+
+    assert len(compiled._simple_hopping_kernels) == 1
+    assert len(compiled._parity_free_hopping_kernels) == 1
+    assert len(compiled._signed_hopping_kernels) == 1
+
+    calculated = edf.hamiltonian(expression).array
+
+    basis = model.fockspace.ls
+    index = {state: i for i, state in enumerate(basis)}
+    expected = np.zeros_like(calculated, dtype=complex)
+
+    transitions = (
+        (0, 1, t01),
+        (1, 0, t01),
+        (1, 2, t12_forward),
+        (2, 1, t12_backward),
+        (0, 3, t03),
+        (3, 0, t03),
+    )
+
+    for column, state in enumerate(basis):
+        for destination, source, coefficient in transitions:
+            result = hop(state, destination, source)
+
+            if result is None:
+                continue
+
+            final_state, sign = result
+
+            expected[
+                index[final_state],
+                column,
+            ] += coefficient * sign
+
+    np.testing.assert_allclose(
+        calculated,
+        expected,
+        atol=1e-6,
+    )
+
+
+
+def test_vectorized_simple_hopping_matches_independent_reference():
+    """Vectorized symmetric hopping must reproduce fermionic Fock algebra."""
+    from edinpy.fermion._execution import compile_operator
+
+    model = make_model(neff=6, nf=3)
+    c = [edf.Annihilation(i) for i in range(6)]
+
+    coefficients = [
+        -1.3,
+        0.7 + 0.2j,
+        -0.4,
+        1.1,
+        -0.8 + 0.1j,
+    ]
+
+    expression = None
+
+    for i, coefficient in enumerate(coefficients):
+        term = coefficient * (
+            c[i].dag * c[i + 1]
+            + c[i + 1].dag * c[i]
+        )
+
+        expression = (
+            term
+            if expression is None
+            else expression + term
+        )
+
+    compiled = compile_operator(expression)
+
+    assert compiled.vectorized_simple_hopping
+    assert len(compiled._simple_hopping_kernels) == 5
+
+    calculated = edf.hamiltonian(expression).array
+
+    basis = model.fockspace.ls
+    index = {
+        state: i
+        for i, state in enumerate(basis)
+    }
+
+    expected = np.zeros_like(
+        calculated,
+        dtype=complex,
+    )
+
+    for column, state in enumerate(basis):
+        for i, coefficient in enumerate(coefficients):
+            for destination, source in (
+                (i, i + 1),
+                (i + 1, i),
+            ):
+                result = hop(
+                    state,
+                    destination,
+                    source,
+                )
+
+                if result is None:
+                    continue
+
+                final_state, sign = result
+
+                expected[
+                    index[final_state],
+                    column,
+                ] += coefficient * sign
+
+    np.testing.assert_allclose(
+        calculated,
+        expected,
+        atol=1e-6,
+    )
+
+
+def test_vectorized_hopping_rejects_general_hopping():
+    """Long-range and asymmetric hopping retain the scalar compiler path."""
+    from edinpy.fermion._execution import compile_operator
+
+    make_model(neff=4, nf=2)
+    c = [edf.Annihilation(i) for i in range(4)]
+
+    long_range = compile_operator(
+        c[0].dag * c[3]
+        + c[3].dag * c[0]
+    )
+
+    asymmetric = compile_operator(
+        c[0].dag * c[1]
+    )
+
+    assert not long_range.vectorized_simple_hopping
+    assert not asymmetric.vectorized_simple_hopping
+
+
+
+def test_vectorized_number_products_match_reference():
+    """Vectorized number products must reproduce the diagonal interaction."""
+    from edinpy.fermion._execution import compile_operator
+
+    model = make_model(neff=5, nf=2)
+
+    expression = (
+        1.3 * edf.Number(0) * edf.Number(1)
+        - 0.7 * edf.Number(1) * edf.Number(3)
+        + 2.1 * edf.Number(2)
+    )
+
+    compiled = compile_operator(expression)
+
+    assert not compiled.vectorized_simple_hopping
+    assert compiled.vectorized_simple_terms
+
+    calculated = edf.hamiltonian(expression).array
+
+    expected = np.zeros_like(
+        calculated,
+        dtype=complex,
+    )
+
+    for column, state in enumerate(model.fockspace.ls):
+        value = 0.0
+
+        if (
+            state & (1 << 0)
+            and state & (1 << 1)
+        ):
+            value += 1.3
+
+        if (
+            state & (1 << 1)
+            and state & (1 << 3)
+        ):
+            value -= 0.7
+
+        if state & (1 << 2):
+            value += 2.1
+
+        expected[column, column] = value
+
+    np.testing.assert_allclose(
+        calculated,
+        expected,
+        atol=1e-6,
+    )
+
+
+def test_vectorized_mixed_hopping_density_matches_reference():
+    """Vectorized hopping plus density terms must preserve the Hamiltonian."""
+    from edinpy.fermion._execution import compile_operator
+
+    model = make_model(neff=6, nf=3)
+    c = [edf.Annihilation(i) for i in range(6)]
+
+    hopping_coefficient = -1.2
+    density_coefficient = 0.65
+
+    expression = None
+
+    for i in range(5):
+        term = (
+            hopping_coefficient
+            * (
+                c[i].dag * c[i + 1]
+                + c[i + 1].dag * c[i]
+            )
+            + density_coefficient
+            * edf.Number(i)
+            * edf.Number(i + 1)
+        )
+
+        expression = (
+            term
+            if expression is None
+            else expression + term
+        )
+
+    compiled = compile_operator(expression)
+
+    assert compiled.vectorized_simple_terms
+    assert not compiled.vectorized_simple_hopping
+
+    calculated = edf.hamiltonian(expression).array
+
+    basis = model.fockspace.ls
+    index = {
+        state: i
+        for i, state in enumerate(basis)
+    }
+
+    expected = np.zeros_like(
+        calculated,
+        dtype=complex,
+    )
+
+    for column, state in enumerate(basis):
+        for i in range(5):
+            if (
+                state & (1 << i)
+                and state & (1 << (i + 1))
+            ):
+                expected[column, column] += (
+                    density_coefficient
+                )
+
+            for destination, source in (
+                (i, i + 1),
+                (i + 1, i),
+            ):
+                result = hop(
+                    state,
+                    destination,
+                    source,
+                )
+
+                if result is None:
+                    continue
+
+                final_state, sign = result
+
+                expected[
+                    index[final_state],
+                    column,
+                ] += hopping_coefficient * sign
+
+    np.testing.assert_allclose(
+        calculated,
+        expected,
+        atol=1e-6,
+    )
+
+
+
+def test_vectorized_number_conserving_monomials_match_reference():
+    """Vectorized four-fermion monomials must reproduce Fock algebra."""
+    from edinpy.fermion._execution import compile_operator
+
+    model = make_model(neff=6, nf=3)
+    c = [edf.Annihilation(i) for i in range(6)]
+
+    coefficient = 0.7 + 0.25j
+
+    expression = (
+        coefficient
+        * c[0].dag
+        * c[1].dag
+        * c[3]
+        * c[2]
+        + np.conjugate(coefficient)
+        * c[2].dag
+        * c[3].dag
+        * c[1]
+        * c[0]
+    )
+
+    compiled = compile_operator(expression)
+
+    assert compiled.vectorized_number_conserving_monomials
+
+    calculated = edf.hamiltonian(expression).array
+
+    basis = model.fockspace.ls
+    index = {
+        state: i
+        for i, state in enumerate(basis)
+    }
+
+    expected = np.zeros_like(
+        calculated,
+        dtype=complex,
+    )
+
+    def annihilate(state, site):
+        bit = 1 << site
+
+        if not state & bit:
+            return None
+
+        parity = (
+            state & (bit - 1)
+        ).bit_count() & 1
+
+        return (
+            state ^ bit,
+            -1 if parity else 1,
+        )
+
+    def create(state, site):
+        bit = 1 << site
+
+        if state & bit:
+            return None
+
+        parity = (
+            state & (bit - 1)
+        ).bit_count() & 1
+
+        return (
+            state | bit,
+            -1 if parity else 1,
+        )
+
+    def apply_pair_transfer(
+        state,
+        creators,
+        annihilators,
+    ):
+        sign = 1
+        current = state
+
+        for site in reversed(annihilators):
+            result = annihilate(current, site)
+
+            if result is None:
+                return None
+
+            current, local_sign = result
+            sign *= local_sign
+
+        for site in reversed(creators):
+            result = create(current, site)
+
+            if result is None:
+                return None
+
+            current, local_sign = result
+            sign *= local_sign
+
+        return current, sign
+
+    transitions = (
+        (
+            coefficient,
+            (0, 1),
+            (3, 2),
+        ),
+        (
+            np.conjugate(coefficient),
+            (2, 3),
+            (1, 0),
+        ),
+    )
+
+    for column, state in enumerate(basis):
+        for amplitude, creators, annihilators in transitions:
+            result = apply_pair_transfer(
+                state,
+                creators,
+                annihilators,
+            )
+
+            if result is None:
+                continue
+
+            final_state, sign = result
+
+            expected[
+                index[final_state],
+                column,
+            ] += amplitude * sign
+
+    np.testing.assert_allclose(
+        calculated,
+        expected,
+        atol=1e-6,
+    )
+
+
+def test_number_changing_monomial_uses_scalar_path():
+    """Fixed-N vectorization must reject number-changing monomials."""
+    from edinpy.fermion._execution import compile_operator
+
+    make_model(neff=4, nf=2)
+    c = [edf.Annihilation(i) for i in range(4)]
+
+    compiled = compile_operator(
+        c[0].dag * c[1].dag
+    )
+
+    assert not compiled.vectorized_number_conserving_monomials
