@@ -411,37 +411,30 @@ def test_lowering_recognizes_number_and_hopping_terms():
     assert compiled.stats == {
         "number_product": 1,
         "hopping": 2,
+        "monomial": 0,
         "generic": 0,
     }
 
 
-def test_lowering_retains_generic_four_fermion_fallback():
-    """
-    A genuine four-fermion transition is intentionally not specialized yet.
-    Verify that lowering falls back to the original Fock algebra correctly.
-    """
+def test_lowering_specializes_four_fermion_monomial():
+    """Verify that a four-fermion transition is lowered and remains correct."""
     from edinpy.fermion._execution import compile_operator
 
     model = make_model(neff=4, nf=2)
+    c = [edf.Annihilation(i) for i in range(4)]
 
-    c0 = edf.Annihilation(0)
-    c1 = edf.Annihilation(1)
-    c2 = edf.Annihilation(2)
-    c3 = edf.Annihilation(3)
-
-    term = c0.dag * c1.dag * c3 * c2
-
+    term = c[0].dag * c[1].dag * c[3] * c[2]
     compiled = compile_operator(term)
 
     assert compiled.stats == {
         "number_product": 0,
         "hopping": 0,
-        "generic": 1,
+        "monomial": 1,
+        "generic": 0,
     }
+    assert compiled.fully_lowered
 
     H = edf.hamiltonian(term).array
-
-    # Build the expected matrix independently.
     expected = np.zeros_like(H, dtype=complex)
     basis = model.fockspace.ls
     index = {state: i for i, state in enumerate(basis)}
@@ -456,15 +449,14 @@ def test_lowering_retains_generic_four_fermion_fallback():
             ("create", 1),
             ("create", 0),
         ):
-            if kind == "annihilate":
-                result = annihilate(current, site)
-            else:
-                result = create(current, site)
-
+            result = (
+                annihilate(current, site)
+                if kind == "annihilate"
+                else create(current, site)
+            )
             if result is None:
                 amplitude = 0
                 break
-
             current, sign = result
             amplitude *= sign
 
@@ -472,7 +464,6 @@ def test_lowering_retains_generic_four_fermion_fallback():
             expected[index[current], col] += amplitude
 
     np.testing.assert_allclose(H, expected, atol=1e-6)
-
 
 def test_lowered_hopping_matches_independent_reference_exhaustively():
     """
@@ -544,11 +535,15 @@ def test_compiler_reports_fully_lowered_status():
         + 2.0 * edf.Number(0) * edf.Number(1)
     )
 
-    generic = compile_operator(
+    quartic = compile_operator(
         c0.dag * c1.dag * c3 * c2
+    )
+    generic = compile_operator(
+        edf.Number(0) * c1.dag * c2
     )
 
     assert lowered.fully_lowered
+    assert quartic.fully_lowered
     assert not generic.fully_lowered
 
 
@@ -604,3 +599,120 @@ def test_direct_sparse_emission_matches_apply():
         expected,
         atol=1e-6,
     )
+
+
+def test_lowered_monomials_match_reference_exhaustively():
+    """Check general monomial kernels against sequential fermion algebra."""
+    from edinpy.fermion._execution import compile_operator
+
+    neff = 4
+    make_model(neff=neff, nf=2)
+    c = [edf.Annihilation(i) for i in range(neff)]
+
+    terms_and_operations = [
+        (
+            c[0].dag * c[1].dag * c[3] * c[2],
+            (
+                ("annihilate", 2),
+                ("annihilate", 3),
+                ("create", 1),
+                ("create", 0),
+            ),
+        ),
+        (
+            c[3].dag * c[0].dag * c[2] * c[1],
+            (
+                ("annihilate", 1),
+                ("annihilate", 2),
+                ("create", 0),
+                ("create", 3),
+            ),
+        ),
+        (
+            c[0].dag * c[2].dag,
+            (("create", 2), ("create", 0)),
+        ),
+        (
+            c[3] * c[1],
+            (("annihilate", 1), ("annihilate", 3)),
+        ),
+    ]
+
+    for term, operations in terms_and_operations:
+        compiled = compile_operator(term)
+        assert compiled.stats["monomial"] == 1
+        assert compiled.fully_lowered
+
+        for state in range(1 << neff):
+            ket_state = edf.vacuum() if state == 0 else edf.fockstate(state)
+            calculated = compiled.apply(ket_state)
+
+            current = state
+            amplitude = 1
+
+            for kind, site in operations:
+                result = (
+                    annihilate(current, site)
+                    if kind == "annihilate"
+                    else create(current, site)
+                )
+                if result is None:
+                    amplitude = 0
+                    break
+                current, sign = result
+                amplitude *= sign
+
+            expected = {current: amplitude} if amplitude else {}
+            assert set(calculated) == set(expected)
+
+            for final_state, expected_amp in expected.items():
+                assert np.isclose(
+                    calculated[final_state],
+                    expected_amp,
+                )
+
+
+def test_generic_fallback_is_preserved_for_mixed_products():
+    """Mixed Number/fermion products retain the symbolic fallback path."""
+    from edinpy.fermion._execution import compile_operator
+
+    make_model(neff=4, nf=2)
+
+    c1 = edf.Annihilation(1)
+    c2 = edf.Annihilation(2)
+    term = edf.Number(0) * c1.dag * c2
+    compiled = compile_operator(term)
+
+    assert compiled.stats == {
+        "number_product": 0,
+        "hopping": 0,
+        "monomial": 0,
+        "generic": 1,
+    }
+    assert not compiled.fully_lowered
+
+    for state in range(1 << 4):
+        ket_state = edf.vacuum() if state == 0 else edf.fockstate(state)
+        calculated = compiled.apply(ket_state)
+        direct = term * ket_state
+
+        if isinstance(direct, edf.null):
+            expected = {}
+        elif isinstance(direct, edf.fockstate):
+            expected = {direct.state: complex(direct.amp)}
+        elif isinstance(direct, edf.statesum):
+            expected = {}
+            for result_state in direct.states:
+                expected[result_state.state] = (
+                    expected.get(result_state.state, 0.0j)
+                    + complex(result_state.amp)
+                )
+        else:
+            raise TypeError(type(direct))
+
+        assert set(calculated) == set(expected)
+        for final_state, expected_amp in expected.items():
+            assert np.isclose(
+                calculated[final_state],
+                expected_amp,
+            )

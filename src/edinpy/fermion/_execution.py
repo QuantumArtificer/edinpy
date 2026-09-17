@@ -43,10 +43,39 @@ class _HoppingKernel:
 
 
 @dataclass(frozen=True, slots=True)
+class _MonomialKernel:
+    """General product of fermionic creation and annihilation operators."""
+
+    coefficient: complex
+    operations: tuple[tuple[bool, int], ...]
+
+
+@dataclass(frozen=True, slots=True)
 class _GenericKernel:
     """Fallback retaining the original symbolic Fock algebra."""
 
     term: object
+
+
+def _apply_monomial(state, amplitude, operations):
+    """Apply a sequence of fermionic operations to an integer Fock state."""
+    current = state
+
+    for creation, site in operations:
+        bit = 1 << site
+
+        if creation:
+            if current & bit:
+                return None
+        elif not current & bit:
+            return None
+
+        if (current & (bit - 1)).bit_count() & 1:
+            amplitude = -amplitude
+
+        current ^= bit
+
+    return current, amplitude
 
 
 class CompiledOperator:
@@ -62,6 +91,11 @@ class CompiledOperator:
             kernel
             for kernel in kernels
             if isinstance(kernel, _HoppingKernel)
+        )
+        self._monomial_kernels = tuple(
+            kernel
+            for kernel in kernels
+            if isinstance(kernel, _MonomialKernel)
         )
         self._generic_kernels = tuple(
             kernel
@@ -87,7 +121,7 @@ class CompiledOperator:
         """Emit sparse-matrix entries directly for a fully lowered operator.
 
         Duplicate matrix entries are intentionally allowed here. The sparse
-        assembly stage combines them with ``sum_duplicates()``.
+        assembly stage combines them with sum_duplicates().
         """
         if not self.fully_lowered:
             raise RuntimeError(
@@ -96,8 +130,6 @@ class CompiledOperator:
 
         state = ket.state
         ket_amp = ket.amp
-
-        # All diagonal terms contribute to the same matrix element.
         diagonal = 0.0j
 
         for kernel in self._number_kernels:
@@ -109,17 +141,14 @@ class CompiledOperator:
             columns.append(column)
             data.append(diagonal * ket_amp)
 
-        # One-body transitions.
         for kernel in self._hopping_kernels:
             if not state & kernel.source_bit:
                 continue
-
             if state & kernel.destination_bit:
                 continue
 
             parity = (state & kernel.parity_mask).bit_count() & 1
             sign = -1 if parity else 1
-
             final_state = state ^ kernel.transition_mask
             row = bisect_left(basis_states, final_state)
 
@@ -127,6 +156,25 @@ class CompiledOperator:
                 continue
 
             amplitude = kernel.coefficient * sign * ket_amp
+            if amplitude != 0:
+                rows.append(row)
+                columns.append(column)
+                data.append(amplitude)
+
+        for kernel in self._monomial_kernels:
+            result = _apply_monomial(
+                state,
+                kernel.coefficient * ket_amp,
+                kernel.operations,
+            )
+            if result is None:
+                continue
+
+            final_state, amplitude = result
+            row = bisect_left(basis_states, final_state)
+
+            if row == nbasis or basis_states[row] != final_state:
+                continue
 
             if amplitude != 0:
                 rows.append(row)
@@ -134,15 +182,10 @@ class CompiledOperator:
                 data.append(amplitude)
 
     def apply(self, ket):
-        """Apply the compiled operator and combine duplicate output states.
-
-        This general path is retained for operators containing symbolic
-        fallback kernels and for direct use of the execution API.
-        """
+        """Apply the compiled operator and combine duplicate output states."""
         state = ket.state
         ket_amp = ket.amp
         output = {}
-
         diagonal = 0.0j
 
         for kernel in self._number_kernels:
@@ -155,16 +198,29 @@ class CompiledOperator:
         for kernel in self._hopping_kernels:
             if not state & kernel.source_bit:
                 continue
-
             if state & kernel.destination_bit:
                 continue
 
             parity = (state & kernel.parity_mask).bit_count() & 1
             sign = -1 if parity else 1
-
             final_state = state ^ kernel.transition_mask
             amplitude = kernel.coefficient * sign * ket_amp
 
+            if amplitude != 0:
+                output[final_state] = (
+                    output.get(final_state, 0.0j) + amplitude
+                )
+
+        for kernel in self._monomial_kernels:
+            result = _apply_monomial(
+                state,
+                kernel.coefficient * ket_amp,
+                kernel.operations,
+            )
+            if result is None:
+                continue
+
+            final_state, amplitude = result
             if amplitude != 0:
                 output[final_state] = (
                     output.get(final_state, 0.0j) + amplitude
@@ -205,6 +261,7 @@ class CompiledOperator:
         return {
             "number_product": len(self._number_kernels),
             "hopping": len(self._hopping_kernels),
+            "monomial": len(self._monomial_kernels),
             "generic": len(self._generic_kernels),
         }
 
@@ -242,10 +299,8 @@ def _split_product(term):
 def _number_mask(factors):
     """Return the occupancy mask required by number operators."""
     mask = 0
-
     for factor in factors:
         mask |= 1 << factor.site
-
     return mask
 
 
@@ -263,14 +318,12 @@ def _between_mask(site_i, site_j):
 def _lower_term(term):
     coefficient, factors = _split_product(term)
 
-    # Constants and arbitrary products of number operators.
     if all(isinstance(factor, Number) for factor in factors):
         return _NumberProductKernel(
             coefficient=coefficient,
             mask=_number_mask(factors),
         )
 
-    # General one-body transition c_i^dagger c_j.
     if (
         len(factors) == 2
         and isinstance(factors[0], Creation)
@@ -279,7 +332,6 @@ def _lower_term(term):
         destination = factors[0].site
         source = factors[1].site
 
-        # c_i^dagger c_i = n_i.
         if destination == source:
             return _NumberProductKernel(
                 coefficient=coefficient,
@@ -295,6 +347,21 @@ def _lower_term(term):
             destination_bit=destination_bit,
             transition_mask=source_bit | destination_bit,
             parity_mask=_between_mask(destination, source),
+        )
+
+    if (
+        factors
+        and all(
+            isinstance(factor, (Creation, Annihilation))
+            for factor in factors
+        )
+    ):
+        return _MonomialKernel(
+            coefficient=coefficient,
+            operations=tuple(
+                (isinstance(factor, Creation), factor.site)
+                for factor in reversed(factors)
+            ),
         )
 
     return _GenericKernel(term)
