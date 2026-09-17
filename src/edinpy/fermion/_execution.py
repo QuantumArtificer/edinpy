@@ -1,8 +1,8 @@
 """Internal execution kernels for fermionic symbolic operators.
 
-The symbolic Fock algebra remains the source of truth.  This module lowers
-common operator forms to direct bitwise kernels while retaining a generic
-symbolic fallback for operators that are not recognized.
+The symbolic Fock algebra remains the source of truth. Common operator
+patterns are lowered to direct bitwise kernels, while arbitrary expressions
+retain the generic symbolic fallback.
 """
 
 from __future__ import annotations
@@ -22,117 +22,142 @@ from .fermion import (
 )
 
 
-def _fermionic_sign(state: int, site: int) -> int:
-    """Return (-1)**N_<site for an integer occupation state."""
-    preceding_mask = (1 << site) - 1
-    return -1 if (state & preceding_mask).bit_count() & 1 else 1
-
-
 @dataclass(frozen=True, slots=True)
 class _NumberProductKernel:
+    """Diagonal product of number operators."""
+
     coefficient: complex
-    sites: tuple[int, ...]
-
-    def apply(self, ket):
-        state = ket.state
-
-        for site in self.sites:
-            if not state & (1 << site):
-                return ()
-
-        return ((state, self.coefficient * ket.amp),)
+    mask: int
 
 
 @dataclass(frozen=True, slots=True)
 class _HoppingKernel:
+    """One-body fermionic transition c_i^dagger c_j."""
+
     coefficient: complex
-    destination: int
-    source: int
-
-    def apply(self, ket):
-        state = ket.state
-        source_bit = 1 << self.source
-
-        if not state & source_bit:
-            return ()
-
-        sign = _fermionic_sign(state, self.source)
-        intermediate = state ^ source_bit
-
-        destination_bit = 1 << self.destination
-
-        if intermediate & destination_bit:
-            return ()
-
-        sign *= _fermionic_sign(intermediate, self.destination)
-        final_state = intermediate ^ destination_bit
-
-        return ((final_state, self.coefficient * sign * ket.amp),)
+    source_bit: int
+    destination_bit: int
+    transition_mask: int
+    parity_mask: int
 
 
 @dataclass(frozen=True, slots=True)
 class _GenericKernel:
+    """Fallback retaining the original symbolic Fock algebra."""
+
     term: object
-
-    def apply(self, ket):
-        result = self.term * ket
-
-        if isinstance(result, null):
-            return ()
-
-        if isinstance(result, fockstate):
-            return ((result.state, result.amp),)
-
-        if isinstance(result, statesum):
-            return tuple(
-                (state.state, state.amp)
-                for state in result.states
-            )
-
-        raise TypeError(
-            "Operator action returned unsupported type "
-            f"{type(result).__name__}."
-        )
 
 
 class CompiledOperator:
-    """Lowered representation of a symbolic fermionic operator."""
+    """Lowered executable representation of a symbolic operator."""
 
     def __init__(self, kernels):
-        self.kernels = tuple(kernels)
+        self._number_kernels = tuple(
+            kernel
+            for kernel in kernels
+            if isinstance(kernel, _NumberProductKernel)
+        )
+        self._hopping_kernels = tuple(
+            kernel
+            for kernel in kernels
+            if isinstance(kernel, _HoppingKernel)
+        )
+        self._generic_kernels = tuple(
+            kernel
+            for kernel in kernels
+            if isinstance(kernel, _GenericKernel)
+        )
 
     def apply(self, ket):
-        """Apply all lowered terms and combine duplicate output states."""
+        """Apply the compiled operator to one Fock basis state."""
+        state = ket.state
+        ket_amp = ket.amp
         output = {}
 
-        for kernel in self.kernels:
-            for state, amplitude in kernel.apply(ket):
-                if amplitude != 0:
-                    output[state] = output.get(state, 0.0j) + amplitude
+        # --------------------------------------------------------------
+        # Diagonal number-operator sector.
+        #
+        # All diagonal contributions are accumulated first so that they
+        # generate at most one dictionary update for this basis state.
+        # --------------------------------------------------------------
+        diagonal = 0.0j
+
+        for kernel in self._number_kernels:
+            if state & kernel.mask == kernel.mask:
+                diagonal += kernel.coefficient
+
+        if diagonal != 0:
+            output[state] = diagonal * ket_amp
+
+        # --------------------------------------------------------------
+        # One-body transitions.
+        #
+        # For c_i^dagger c_j, once occupancy constraints are satisfied,
+        # the fermionic sign is determined by the parity of occupied
+        # modes strictly between i and j.
+        # --------------------------------------------------------------
+        for kernel in self._hopping_kernels:
+            if not state & kernel.source_bit:
+                continue
+
+            if state & kernel.destination_bit:
+                continue
+
+            parity = (state & kernel.parity_mask).bit_count() & 1
+            sign = -1 if parity else 1
+
+            final_state = state ^ kernel.transition_mask
+            amplitude = kernel.coefficient * sign * ket_amp
+
+            if amplitude != 0:
+                output[final_state] = (
+                    output.get(final_state, 0.0j) + amplitude
+                )
+
+        # --------------------------------------------------------------
+        # Generic symbolic fallback.
+        # --------------------------------------------------------------
+        for kernel in self._generic_kernels:
+            result = kernel.term * ket
+
+            if isinstance(result, null):
+                continue
+
+            if isinstance(result, fockstate):
+                if result.amp != 0:
+                    output[result.state] = (
+                        output.get(result.state, 0.0j)
+                        + result.amp
+                    )
+                continue
+
+            if isinstance(result, statesum):
+                for result_state in result.states:
+                    if result_state.amp != 0:
+                        output[result_state.state] = (
+                            output.get(result_state.state, 0.0j)
+                            + result_state.amp
+                        )
+                continue
+
+            raise TypeError(
+                "Operator action returned unsupported type "
+                f"{type(result).__name__}."
+            )
 
         return output
 
     @property
     def stats(self):
-        counts = {
-            "number_product": 0,
-            "hopping": 0,
-            "generic": 0,
+        return {
+            "number_product": len(self._number_kernels),
+            "hopping": len(self._hopping_kernels),
+            "generic": len(self._generic_kernels),
         }
-
-        for kernel in self.kernels:
-            if isinstance(kernel, _NumberProductKernel):
-                counts["number_product"] += 1
-            elif isinstance(kernel, _HoppingKernel):
-                counts["hopping"] += 1
-            else:
-                counts["generic"] += 1
-
-        return counts
 
 
 def _flatten_sum(operator):
-    """Yield additive terms from a possibly nested OperatorSum."""
+    """Yield additive terms from a nested OperatorSum."""
     if isinstance(operator, OperatorSum):
         for term in operator.os:
             yield from _flatten_sum(term)
@@ -141,7 +166,7 @@ def _flatten_sum(operator):
 
 
 def _split_product(term):
-    """Return numerical coefficient and non-scalar factors."""
+    """Separate the numerical coefficient from operator factors."""
     coefficient = 1.0
 
     if isinstance(term, scalar):
@@ -161,34 +186,69 @@ def _split_product(term):
     return coefficient, [term]
 
 
+def _number_mask(factors):
+    """Return the occupancy mask required by number operators."""
+    mask = 0
+
+    for factor in factors:
+        mask |= 1 << factor.site
+
+    return mask
+
+
+def _between_mask(site_i, site_j):
+    """Bits strictly between two fermionic modes."""
+    low = min(site_i, site_j)
+    high = max(site_i, site_j)
+
+    if high - low <= 1:
+        return 0
+
+    return (1 << high) - (1 << (low + 1))
+
+
 def _lower_term(term):
     coefficient, factors = _split_product(term)
 
-    # Constants and products of number operators are diagonal.
+    # Constants and arbitrary products of number operators.
     if all(isinstance(factor, Number) for factor in factors):
         return _NumberProductKernel(
             coefficient=coefficient,
-            sites=tuple(factor.site for factor in factors),
+            mask=_number_mask(factors),
         )
 
-    # c_i^\dagger c_j: generic one-body fermionic transition.
+    # General one-body transition c_i^dagger c_j.
     if (
         len(factors) == 2
         and isinstance(factors[0], Creation)
         and isinstance(factors[1], Annihilation)
     ):
+        destination = factors[0].site
+        source = factors[1].site
+
+        # c_i^dagger c_i = n_i.
+        if destination == source:
+            return _NumberProductKernel(
+                coefficient=coefficient,
+                mask=1 << source,
+            )
+
+        source_bit = 1 << source
+        destination_bit = 1 << destination
+
         return _HoppingKernel(
             coefficient=coefficient,
-            destination=factors[0].site,
-            source=factors[1].site,
+            source_bit=source_bit,
+            destination_bit=destination_bit,
+            transition_mask=source_bit | destination_bit,
+            parity_mask=_between_mask(destination, source),
         )
 
-    # Anything else retains the original Fock-algebra implementation.
     return _GenericKernel(term)
 
 
 def compile_operator(operator):
-    """Lower a symbolic operator into executable kernels."""
+    """Lower a symbolic fermionic operator into executable kernels."""
     return CompiledOperator(
         [_lower_term(term) for term in _flatten_sum(operator)]
     )

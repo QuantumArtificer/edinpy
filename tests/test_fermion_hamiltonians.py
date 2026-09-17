@@ -472,3 +472,58 @@ def test_lowering_retains_generic_four_fermion_fallback():
             expected[index[current], col] += amplitude
 
     np.testing.assert_allclose(H, expected, atol=1e-6)
+
+
+def test_lowered_hopping_matches_independent_reference_exhaustively():
+    """
+    Verify direct lowered c_i^dagger c_j kernels for every pair of modes
+    and every occupation state of a four-mode local Fock space.
+    """
+    from edinpy.fermion._execution import compile_operator
+
+    neff = 4
+    make_model(neff=neff, nf=2)
+
+    for destination in range(neff):
+        for source in range(neff):
+            term = (
+                edf.Annihilation(destination).dag
+                * edf.Annihilation(source)
+            )
+
+            compiled = compile_operator(term)
+
+            for state in range(1 << neff):
+                ket_state = (
+                    edf.vacuum()
+                    if state == 0
+                    else edf.fockstate(state)
+                )
+
+                calculated = compiled.apply(ket_state)
+
+                if destination == source:
+                    if state & (1 << source):
+                        expected = {state: 1.0}
+                    else:
+                        expected = {}
+                else:
+                    reference = hop(
+                        state,
+                        destination,
+                        source,
+                    )
+
+                    if reference is None:
+                        expected = {}
+                    else:
+                        final_state, sign = reference
+                        expected = {final_state: sign}
+
+                assert set(calculated) == set(expected)
+
+                for final_state, amplitude in expected.items():
+                    assert np.isclose(
+                        calculated[final_state],
+                        amplitude,
+                    )
