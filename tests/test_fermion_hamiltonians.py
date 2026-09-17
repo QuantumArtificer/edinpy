@@ -390,3 +390,85 @@ def test_nonhermitian_operator_matrix_is_preserved():
     )
 
     np.testing.assert_allclose(H, expected, atol=1e-6)
+
+
+def test_lowering_recognizes_number_and_hopping_terms():
+    from edinpy.fermion._execution import compile_operator
+
+    make_model(neff=4, nf=2)
+
+    c0 = edf.Annihilation(0)
+    c1 = edf.Annihilation(1)
+
+    expression = (
+        2.0 * edf.Number(0) * edf.Number(1)
+        + 3.0 * c0.dag * c1
+        + 3.0 * c1.dag * c0
+    )
+
+    compiled = compile_operator(expression)
+
+    assert compiled.stats == {
+        "number_product": 1,
+        "hopping": 2,
+        "generic": 0,
+    }
+
+
+def test_lowering_retains_generic_four_fermion_fallback():
+    """
+    A genuine four-fermion transition is intentionally not specialized yet.
+    Verify that lowering falls back to the original Fock algebra correctly.
+    """
+    from edinpy.fermion._execution import compile_operator
+
+    model = make_model(neff=4, nf=2)
+
+    c0 = edf.Annihilation(0)
+    c1 = edf.Annihilation(1)
+    c2 = edf.Annihilation(2)
+    c3 = edf.Annihilation(3)
+
+    term = c0.dag * c1.dag * c3 * c2
+
+    compiled = compile_operator(term)
+
+    assert compiled.stats == {
+        "number_product": 0,
+        "hopping": 0,
+        "generic": 1,
+    }
+
+    H = edf.hamiltonian(term).array
+
+    # Build the expected matrix independently.
+    expected = np.zeros_like(H, dtype=complex)
+    basis = model.fockspace.ls
+    index = {state: i for i, state in enumerate(basis)}
+
+    for col, state in enumerate(basis):
+        amplitude = 1
+        current = state
+
+        for kind, site in (
+            ("annihilate", 2),
+            ("annihilate", 3),
+            ("create", 1),
+            ("create", 0),
+        ):
+            if kind == "annihilate":
+                result = annihilate(current, site)
+            else:
+                result = create(current, site)
+
+            if result is None:
+                amplitude = 0
+                break
+
+            current, sign = result
+            amplitude *= sign
+
+        if amplitude and current in index:
+            expected[index[current], col] += amplitude
+
+    np.testing.assert_allclose(H, expected, atol=1e-6)

@@ -1521,13 +1521,13 @@ class hamiltonian:
         '''
         Calculate the sparse matrix representation of the Hamiltonian.
 
-        The Hamiltonian is applied once to each Fock basis state. Nonzero
-        output states are mapped back to their basis indices and accumulated
-        directly as sparse-matrix entries.
+        Common symbolic operator terms are lowered to direct execution
+        kernels. Unrecognized terms retain the general Fock-algebra path.
         '''
         from bisect import bisect_left
         from numpy import csingle
         from scipy.sparse import coo_array
+        from ._execution import compile_operator
         global _Nbasis, _fockspace
 
         rows = []
@@ -1535,37 +1535,22 @@ class hamiltonian:
         data = []
 
         basis_states = _fockspace.ls
-
-        print('Calculating matrix elements of Hamiltonian.')
+        compiled = compile_operator(self.opform)
 
         for column, ket in enumerate(_fockspace.basis):
-            result = self.opform * ket
+            output = compiled.apply(ket)
 
-            if isinstance(result, null):
-                continue
+            for state, amplitude in output.items():
+                row = bisect_left(basis_states, state)
 
-            if isinstance(result, fockstate):
-                states = (result,)
-            elif isinstance(result, statesum):
-                states = result.states
-            else:
-                raise TypeError(
-                    'Hamiltonian action returned unsupported type '
-                    f'{type(result).__name__}.'
-                )
-
-            for state in states:
-                row = bisect_left(basis_states, state.state)
-
-                # Terms that leave the active particle-number sector do not
-                # contribute to the Hamiltonian matrix in this Fock space.
-                if row == _Nbasis or basis_states[row] != state.state:
+                # Ignore states outside the active fixed-particle sector.
+                if row == _Nbasis or basis_states[row] != state:
                     continue
 
-                if state.amp != 0:
+                if amplitude != 0:
                     rows.append(row)
                     columns.append(column)
-                    data.append(state.amp)
+                    data.append(amplitude)
 
         self.sparse_matrix = coo_array(
             (data, (rows, columns)),
@@ -1573,7 +1558,6 @@ class hamiltonian:
             dtype=csingle,
         ).tocsr()
 
-        # Multiple operator terms can generate the same matrix element.
         self.sparse_matrix.sum_duplicates()
 
     def eigsolve(self, sparse = True, numeigs = 2, which = 'SA'):
