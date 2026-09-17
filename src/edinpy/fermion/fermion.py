@@ -563,7 +563,6 @@ class fermionspace:
         self.ls = None
 
     def __contains__(self, s):
-        from bisect import bisect_left
         
         i = bisect_left(self.ls, s.state)
         if i != len(self.ls) and self.ls[i] == s.state:
@@ -1517,51 +1516,61 @@ class hamiltonian:
         raise NotImplementedError
 
     def calc_matrix(self):
-        '''
+        """
         Calculate the sparse matrix representation of the Hamiltonian.
 
-        Fully lowered operators emit sparse entries directly. Operators that
-        require symbolic fallback retain the general compiled-operator path.
-        '''
-        from bisect import bisect_left
+        Fully lowered operators are emitted directly in compressed-column
+        form. Operators requiring symbolic fallback retain the general
+        state-driven sparse construction path.
+        """
         from numpy import csingle
-        from scipy.sparse import coo_array
+        from scipy.sparse import coo_array, csc_array
         from ._execution import compile_operator
         global _Nbasis, _fockspace
-
-        rows = []
-        columns = []
-        data = []
 
         basis_states = _fockspace.ls
         compiled = compile_operator(self.opform)
 
         if compiled.fully_lowered:
-            for column, ket in enumerate(_fockspace.basis):
-                compiled.emit_sparse(
-                    ket=ket,
-                    column=column,
-                    basis_states=basis_states,
-                    nbasis=_Nbasis,
-                    rows=rows,
-                    columns=columns,
-                    data=data,
-                )
+            indices, indptr, data = compiled.emit_csc(
+                basis_states,
+            )
 
-        else:
-            for column, ket in enumerate(_fockspace.basis):
-                output = compiled.apply(ket)
+            matrix = csc_array(
+                (data, indices, indptr),
+                shape=(_Nbasis, _Nbasis),
+                dtype=csingle,
+            )
 
-                for state, amplitude in output.items():
-                    row = bisect_left(basis_states, state)
+            matrix.sum_duplicates()
 
-                    if row == _Nbasis or basis_states[row] != state:
-                        continue
+            # Preserve the historical CSR matrix representation exposed
+            # through Hamiltonian.sparse.
+            self.sparse_matrix = matrix.tocsr()
+            return
 
-                    if amplitude != 0:
-                        rows.append(row)
-                        columns.append(column)
-                        data.append(amplitude)
+        rows = []
+        columns = []
+        data = []
+
+        basis_index = {
+            state: index
+            for index, state in enumerate(basis_states)
+        }
+
+        for column, ket in enumerate(_fockspace.basis):
+            output = compiled.apply(ket)
+
+            for state, amplitude in output.items():
+                row = basis_index.get(state)
+
+                if row is None:
+                    continue
+
+                if amplitude != 0:
+                    rows.append(row)
+                    columns.append(column)
+                    data.append(amplitude)
 
         self.sparse_matrix = coo_array(
             (data, (rows, columns)),

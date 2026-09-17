@@ -43,6 +43,18 @@ class _HoppingKernel:
 
 
 @dataclass(frozen=True, slots=True)
+class _HoppingPairKernel:
+    """Combined hopping transitions between one unordered pair of modes."""
+
+    low_bit: int
+    high_bit: int
+    transition_mask: int
+    parity_mask: int
+    low_from_high: complex
+    high_from_low: complex
+
+
+@dataclass(frozen=True, slots=True)
 class _MonomialKernel:
     """Compiled product of fermionic creation and annihilation operators."""
 
@@ -60,6 +72,49 @@ class _GenericKernel:
     term: object
 
 
+def _group_hopping_kernels(kernels):
+    """Combine directed hopping terms acting on the same pair of modes."""
+    groups = {}
+
+    for kernel in kernels:
+        low_bit = min(kernel.source_bit, kernel.destination_bit)
+        high_bit = max(kernel.source_bit, kernel.destination_bit)
+
+        key = (
+            low_bit,
+            high_bit,
+            kernel.parity_mask,
+        )
+
+        low_from_high, high_from_low = groups.get(
+            key,
+            (0.0j, 0.0j),
+        )
+
+        if kernel.source_bit == low_bit:
+            high_from_low += kernel.coefficient
+        else:
+            low_from_high += kernel.coefficient
+
+        groups[key] = (
+            low_from_high,
+            high_from_low,
+        )
+
+    return tuple(
+        _HoppingPairKernel(
+            low_bit=low_bit,
+            high_bit=high_bit,
+            transition_mask=low_bit | high_bit,
+            parity_mask=parity_mask,
+            low_from_high=coefficients[0],
+            high_from_low=coefficients[1],
+        )
+        for (low_bit, high_bit, parity_mask), coefficients
+        in groups.items()
+    )
+
+
 class CompiledOperator:
     """Lowered executable representation of a symbolic operator."""
 
@@ -69,10 +124,14 @@ class CompiledOperator:
             for kernel in kernels
             if isinstance(kernel, _NumberProductKernel)
         )
-        self._hopping_kernels = tuple(
+        hopping_kernels = tuple(
             kernel
             for kernel in kernels
             if isinstance(kernel, _HoppingKernel)
+        )
+        self._hopping_term_count = len(hopping_kernels)
+        self._hopping_kernels = _group_hopping_kernels(
+            hopping_kernels
         )
         self._monomial_kernels = tuple(
             kernel
@@ -124,9 +183,16 @@ class CompiledOperator:
             data.append(diagonal * ket_amp)
 
         for kernel in self._hopping_kernels:
-            if not state & kernel.source_bit:
+            occupation = state & kernel.transition_mask
+
+            if occupation == kernel.low_bit:
+                coefficient = kernel.high_from_low
+            elif occupation == kernel.high_bit:
+                coefficient = kernel.low_from_high
+            else:
                 continue
-            if state & kernel.destination_bit:
+
+            if coefficient == 0:
                 continue
 
             parity = (state & kernel.parity_mask).bit_count() & 1
@@ -137,7 +203,8 @@ class CompiledOperator:
             if row == nbasis or basis_states[row] != final_state:
                 continue
 
-            amplitude = kernel.coefficient * sign * ket_amp
+            amplitude = coefficient * sign * ket_amp
+
             if amplitude != 0:
                 rows.append(row)
                 columns.append(column)
@@ -168,6 +235,102 @@ class CompiledOperator:
                 columns.append(column)
                 data.append(amplitude)
 
+    def emit_csc(self, basis_states):
+        """Emit CSC data arrays directly from integer Fock basis states."""
+        if not self.fully_lowered:
+            raise RuntimeError(
+                "Direct matrix emission requires a fully lowered operator."
+            )
+
+        basis_index = {
+            state: index
+            for index, state in enumerate(basis_states)
+        }
+
+        indices = []
+        indptr = [0]
+        data = []
+
+        append_index = indices.append
+        append_pointer = indptr.append
+        append_data = data.append
+        get_index = basis_index.get
+
+        number_kernels = self._number_kernels
+        hopping_kernels = self._hopping_kernels
+        monomial_kernels = self._monomial_kernels
+
+        for column, state in enumerate(basis_states):
+            diagonal = 0.0j
+
+            for kernel in number_kernels:
+                if state & kernel.mask == kernel.mask:
+                    diagonal += kernel.coefficient
+
+            if diagonal != 0:
+                append_index(column)
+                append_data(diagonal)
+
+            for kernel in hopping_kernels:
+                occupation = state & kernel.transition_mask
+
+                if occupation == kernel.low_bit:
+                    coefficient = kernel.high_from_low
+                elif occupation == kernel.high_bit:
+                    coefficient = kernel.low_from_high
+                else:
+                    continue
+
+                if coefficient == 0:
+                    continue
+
+                parity = (
+                    state & kernel.parity_mask
+                ).bit_count() & 1
+
+                final_state = state ^ kernel.transition_mask
+                row = get_index(final_state)
+
+                if row is None:
+                    continue
+
+                amplitude = -coefficient if parity else coefficient
+
+                if amplitude != 0:
+                    append_index(row)
+                    append_data(amplitude)
+
+            for kernel in monomial_kernels:
+                if (
+                    state & kernel.required_occupied_mask
+                    != kernel.required_occupied_mask
+                ):
+                    continue
+
+                if state & kernel.required_empty_mask:
+                    continue
+
+                parity = (
+                    state & kernel.parity_mask
+                ).bit_count() & 1
+
+                final_state = state ^ kernel.transition_mask
+                row = get_index(final_state)
+
+                if row is None:
+                    continue
+
+                coefficient = kernel.coefficient
+                amplitude = -coefficient if parity else coefficient
+
+                if amplitude != 0:
+                    append_index(row)
+                    append_data(amplitude)
+
+            append_pointer(len(data))
+
+        return indices, indptr, data
+
     def apply(self, ket):
         """Apply the compiled operator and combine duplicate output states."""
         state = ket.state
@@ -183,15 +346,22 @@ class CompiledOperator:
             output[state] = diagonal * ket_amp
 
         for kernel in self._hopping_kernels:
-            if not state & kernel.source_bit:
+            occupation = state & kernel.transition_mask
+
+            if occupation == kernel.low_bit:
+                coefficient = kernel.high_from_low
+            elif occupation == kernel.high_bit:
+                coefficient = kernel.low_from_high
+            else:
                 continue
-            if state & kernel.destination_bit:
+
+            if coefficient == 0:
                 continue
 
             parity = (state & kernel.parity_mask).bit_count() & 1
             sign = -1 if parity else 1
             final_state = state ^ kernel.transition_mask
-            amplitude = kernel.coefficient * sign * ket_amp
+            amplitude = coefficient * sign * ket_amp
 
             if amplitude != 0:
                 output[final_state] = (
@@ -252,7 +422,8 @@ class CompiledOperator:
     def stats(self):
         return {
             "number_product": len(self._number_kernels),
-            "hopping": len(self._hopping_kernels),
+            "hopping": self._hopping_term_count,
+            "hopping_groups": len(self._hopping_kernels),
             "monomial": len(self._monomial_kernels),
             "generic": len(self._generic_kernels),
         }

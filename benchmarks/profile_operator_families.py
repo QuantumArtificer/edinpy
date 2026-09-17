@@ -8,6 +8,10 @@ import time
 from contextlib import redirect_stdout
 from math import comb
 
+# Exclude one-time numerical-library imports from benchmark timings.
+import numpy as np
+import scipy.sparse
+
 from edinpy import fermion as edf
 from edinpy.fermion._execution import compile_operator
 
@@ -74,6 +78,9 @@ def build_operator_family(length, particles, family):
 
 
 def main():
+    _ = np.empty(0)
+    _ = scipy.sparse.csr_array((0, 0))
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--length", type=int, default=16)
     parser.add_argument("--particles", type=int, default=8)

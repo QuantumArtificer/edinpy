@@ -411,6 +411,7 @@ def test_lowering_recognizes_number_and_hopping_terms():
     assert compiled.stats == {
         "number_product": 1,
         "hopping": 2,
+        "hopping_groups": 1,
         "monomial": 0,
         "generic": 0,
     }
@@ -429,6 +430,7 @@ def test_lowering_specializes_four_fermion_monomial():
     assert compiled.stats == {
         "number_product": 0,
         "hopping": 0,
+        "hopping_groups": 0,
         "monomial": 1,
         "generic": 0,
     }
@@ -686,6 +688,7 @@ def test_generic_fallback_is_preserved_for_mixed_products():
     assert compiled.stats == {
         "number_product": 0,
         "hopping": 0,
+        "hopping_groups": 0,
         "monomial": 0,
         "generic": 1,
     }
@@ -761,3 +764,53 @@ def test_compiled_monomial_masks_handle_repeated_modes():
                     calculated[final_state],
                     expected_amp,
                 )
+
+
+
+def test_grouped_hopping_preserves_asymmetric_complex_coefficients():
+    """Grouping must preserve independent coefficients for both directions."""
+    from edinpy.fermion._execution import compile_operator
+
+    model = make_model(neff=4, nf=2)
+
+    c0 = edf.Annihilation(0)
+    c3 = edf.Annihilation(3)
+
+    low_from_high = 1.2 + 0.7j
+    high_from_low = -0.4 + 0.3j
+
+    expression = (
+        low_from_high * c0.dag * c3
+        + high_from_low * c3.dag * c0
+        + 0.5 * c0.dag * c3
+    )
+
+    compiled = compile_operator(expression)
+
+    assert compiled.stats["hopping"] == 3
+    assert compiled.stats["hopping_groups"] == 1
+
+    H = edf.hamiltonian(expression).array
+    expected = np.zeros_like(H, dtype=complex)
+
+    basis = model.fockspace.ls
+    index = {state: i for i, state in enumerate(basis)}
+
+    for column, state in enumerate(basis):
+        for destination, source, coefficient in (
+            (0, 3, low_from_high + 0.5),
+            (3, 0, high_from_low),
+        ):
+            result = hop(state, destination, source)
+
+            if result is not None:
+                final_state, sign = result
+                expected[index[final_state], column] += (
+                    coefficient * sign
+                )
+
+    np.testing.assert_allclose(
+        H,
+        expected,
+        atol=1e-6,
+    )
