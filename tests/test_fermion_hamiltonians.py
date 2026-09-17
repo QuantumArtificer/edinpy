@@ -361,3 +361,32 @@ def test_sparse_eigsolve_matches_dense_reference():
         np.sort(reference),
         atol=1e-6,
     )
+
+
+def test_nonhermitian_operator_matrix_is_preserved():
+    """
+    Matrix construction must represent the supplied operator directly rather
+    than imposing Hermiticity.
+
+    For basis [|10>, |01>] in EDinPy integer ordering,
+
+        c_0^dagger c_1
+
+    has only one nonzero matrix element.
+    """
+    make_model(neff=2, nf=1)
+
+    c0 = edf.operator(0)
+    c1 = edf.operator(1)
+
+    H = edf.hamiltonian(c0.dag * c1).array
+
+    expected = np.array(
+        [
+            [0.0, 1.0],
+            [0.0, 0.0],
+        ],
+        dtype=complex,
+    )
+
+    np.testing.assert_allclose(H, expected, atol=1e-6)

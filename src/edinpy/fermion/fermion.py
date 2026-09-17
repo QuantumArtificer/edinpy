@@ -1495,39 +1495,62 @@ class hamiltonian:
 
     def calc_matrix(self):
         '''
-        Calculate the matrix form of the Hamiltonian.
+        Calculate the sparse matrix representation of the Hamiltonian.
+
+        The Hamiltonian is applied once to each Fock basis state. Nonzero
+        output states are mapped back to their basis indices and accumulated
+        directly as sparse-matrix entries.
         '''
-        from numpy import zeros, csingle
-        from scipy.sparse import csr_array as csr
-        global _Nbasis
+        from bisect import bisect_left
+        from numpy import csingle
+        from scipy.sparse import coo_array
+        global _Nbasis, _fockspace
 
-        HM_upper = csr((_Nbasis, _Nbasis), dtype = csingle) # upper triangular sparse matrix
-        idx = zeros(_Nbasis, dtype = int) # matrix elements of sparse matrix
-        diag = zeros(_Nbasis, dtype = csingle) # matrix elements of sparse matrix
-        jj = 0
-        print(f'Calculating matrix elements of Hamiltonian.')
-        for i in range(_Nbasis):
-            row = zeros((_Nbasis-i), dtype=int) # row indices of sparse matrix
-            column = zeros((_Nbasis-i), dtype=int) # column indices of sparse matrix
-            data = zeros((_Nbasis-i), dtype = csingle) # matrix elements of sparse matrix
-            ii = 0 # index of non-zero matrix elements in data array
-            for j in range(i,_Nbasis):
-                print(f'row: {i/_Nbasis*100:.2f}%, column: {(j-i)/(_Nbasis-i)*100:.2f}%', end = '\r')
-                element = _fockspace.basis[i] * (self.opform * _fockspace.basis[j])
-                if element != 0j:
-                    if i == j:
-                        idx[jj] = i
-                        diag[jj] += element
-                        jj += 1
+        rows = []
+        columns = []
+        data = []
 
-                    row[ii] = i; column[ii] = j
-                    data[ii] += element
-                    ii += 1 
-            HM_upper += csr((data,(row,column)), shape = (_Nbasis, _Nbasis), dtype = csingle) # add row to upper triangular matrix
-        
-        print(f'row: {100:.2f}%, column: {100:.2f}%')
-        HM_diag = csr((diag, (idx,idx)), shape = (_Nbasis, _Nbasis), dtype = csingle)
-        self.sparse_matrix = HM_upper + HM_upper.conj().T - HM_diag
+        basis_states = _fockspace.ls
+
+        print('Calculating matrix elements of Hamiltonian.')
+
+        for column, ket in enumerate(_fockspace.basis):
+            result = self.opform * ket
+
+            if isinstance(result, null):
+                continue
+
+            if isinstance(result, fockstate):
+                states = (result,)
+            elif isinstance(result, statesum):
+                states = result.states
+            else:
+                raise TypeError(
+                    'Hamiltonian action returned unsupported type '
+                    f'{type(result).__name__}.'
+                )
+
+            for state in states:
+                row = bisect_left(basis_states, state.state)
+
+                # Terms that leave the active particle-number sector do not
+                # contribute to the Hamiltonian matrix in this Fock space.
+                if row == _Nbasis or basis_states[row] != state.state:
+                    continue
+
+                if state.amp != 0:
+                    rows.append(row)
+                    columns.append(column)
+                    data.append(state.amp)
+
+        self.sparse_matrix = coo_array(
+            (data, (rows, columns)),
+            shape=(_Nbasis, _Nbasis),
+            dtype=csingle,
+        ).tocsr()
+
+        # Multiple operator terms can generate the same matrix element.
+        self.sparse_matrix.sum_duplicates()
 
     def eigsolve(self, sparse = True, numeigs = 2, which = 'SA'):
         '''
