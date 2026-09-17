@@ -343,3 +343,24 @@ def test_creation_is_not_annihilation_operator():
 
     assert isinstance(cd, edf.Operator)
     assert not isinstance(cd, edf.Annihilation)
+
+
+def test_canonical_composite_operator_classes():
+    make_model(neff=4, nf=2)
+
+    c0 = edf.Annihilation(0)
+    c1 = edf.Annihilation(1)
+
+    product = c0.dag * c1
+    operator_sum = c0 + c1
+
+    assert isinstance(product, edf.OperatorProduct)
+    assert isinstance(operator_sum, edf.OperatorSum)
+
+    assert isinstance(product, edf.Operator)
+    assert isinstance(operator_sum, edf.Operator)
+
+
+def test_legacy_composite_operator_aliases():
+    assert edf.operatorproduct is edf.OperatorProduct
+    assert edf.operatorsum is edf.OperatorSum

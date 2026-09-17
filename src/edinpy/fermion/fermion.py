@@ -1095,7 +1095,7 @@ class Creation(_SingleModeOperator):
 # Backward-compatible historical API.
 dagger = Creation
 
-class operatorsum(Operator):
+class OperatorSum(Operator):
     ''' 
     Sum of operators.
 
@@ -1253,7 +1253,7 @@ class operatorsum(Operator):
         string += self._os[-1].string
         return string
         
-class operatorproduct(Operator):
+class OperatorProduct(Operator):
     ''' 
     Product of operators.
 
@@ -1408,6 +1408,10 @@ class operatorproduct(Operator):
     def op(self, operatorlist):
         self._op = operatorlist
     
+# Backward-compatible historical API.
+operatorsum = OperatorSum
+operatorproduct = OperatorProduct
+
 class Number(_SingleModeOperator):
     ''' 
     Create a number operator.
