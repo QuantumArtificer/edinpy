@@ -272,7 +272,7 @@ class fockstate:
             newfs.bra = True
             return newfs
         
-        if isinstance(obj, operator):
+        if isinstance(obj, _SingleModeOperator):
             product =  obj.dag*self
             product.bra = True
             if self.bra is False:
@@ -376,7 +376,7 @@ class vacuum(fockstate):
             self.bra = True
             return self
         
-        if isinstance(obj, operator):
+        if isinstance(obj, _SingleModeOperator):
             product =  obj.dag * self
             product.bra = True
             if self.bra is False:
@@ -439,7 +439,7 @@ class null():
         if isinstance(obj, scalar):
             return self
         
-        if isinstance(obj, (operator, operatorsum, operatorproduct)):
+        if isinstance(obj, (_SingleModeOperator, operatorsum, operatorproduct)):
             return self
         
         if isinstance(obj, statesum):
@@ -487,7 +487,7 @@ class statesum:
             states.append(obj)
             return statesum(states)
         
-        if isinstance(obj, operator):
+        if isinstance(obj, _SingleModeOperator):
             sum = self._os[0]*obj
             for i in range(1,len(self._os)):
                 sum += self._os[i]*obj
@@ -709,7 +709,7 @@ class scalar:
         if isinstance(obj, null):
             return obj
         
-        if isinstance(obj, operator):
+        if isinstance(obj, _SingleModeOperator):
             prod = [self, obj]
             return operatorproduct(prod)
 
@@ -762,7 +762,11 @@ class scalar:
         '''
         return f'{self.label}'
     
-class operator:
+class Operator:
+    '''Base class for symbolic fermionic operators.'''
+    pass
+
+class _SingleModeOperator(Operator):
     ''' 
     Create an annihilation operator.
 
@@ -786,7 +790,7 @@ class operator:
 
     def __add__(self, obj):
 
-        if isinstance(obj, (operator, operatorproduct)):
+        if isinstance(obj, (_SingleModeOperator, operatorproduct)):
             return operatorsum([self, obj])
         
         if isinstance(obj, operatorsum):
@@ -817,7 +821,7 @@ class operator:
         
         negone = scalar(-1,f'({-1})')
         
-        if isinstance(obj, (operator, operatorproduct)):
+        if isinstance(obj, (_SingleModeOperator, operatorproduct)):
             return operatorsum([self, negone * obj])
         
         if isinstance(obj, operatorsum):
@@ -855,7 +859,7 @@ class operator:
         if isinstance(obj, scalar):
             return operatorproduct([obj, self])
         
-        if isinstance(obj,operator):
+        if isinstance(obj,_SingleModeOperator):
             return operatorproduct([self,obj])
 
         if isinstance(obj,operatorsum):
@@ -1004,7 +1008,14 @@ class operator:
             string += str(self._indices[-1])    
         return 'c' + _subscripts(string)
     
-class dagger(operator):
+class Annihilation(_SingleModeOperator):
+    '''Fermionic annihilation operator.'''
+    pass
+
+# Backward-compatible historical API.
+operator = Annihilation
+
+class Creation(_SingleModeOperator):
     ''' 
     Hermitian adjoint of an operator.
 
@@ -1017,9 +1028,12 @@ class dagger(operator):
         Effective site that the operator acts on.
     '''
 
-    def __init__(self, indices, site):
+    def __init__(self, indices, site=None):
         self._indices = indices
-        self._site = site
+        if site is None:
+            self._calc_effsite()
+        else:
+            self._site = site
     
     def __format__(self,spec):
         return self.string
@@ -1078,7 +1092,10 @@ class dagger(operator):
             string += str(self._indices[-1])    
         return 'c†' + _subscripts(string)
     
-class operatorsum:
+# Backward-compatible historical API.
+dagger = Creation
+
+class operatorsum(Operator):
     ''' 
     Sum of operators.
 
@@ -1100,7 +1117,7 @@ class operatorsum:
 
     def __add__(self, obj):
 
-        if isinstance(obj, (scalar, operator, operatorproduct)):
+        if isinstance(obj, (scalar, _SingleModeOperator, operatorproduct)):
             os = [o for o in self._os]
             os.append(obj)
             return operatorsum(os)
@@ -1125,7 +1142,7 @@ class operatorsum:
     def __sub__(self, obj):
         negone = scalar(-1,f'({-1})')
 
-        if isinstance(obj, (scalar, operator, operatorproduct)):
+        if isinstance(obj, (scalar, _SingleModeOperator, operatorproduct)):
             os = [o for o in self._os]
             os.append(negone * obj)
             return operatorsum(os)
@@ -1163,7 +1180,7 @@ class operatorsum:
                 sum += self._os[i] * obj
             return sum
         
-        if isinstance(obj, (operator,operatorproduct)):
+        if isinstance(obj, (_SingleModeOperator,operatorproduct)):
             os = [0 for i in range(len(self._os))]
             for i, o in enumerate(self._os):
                 os[i] = o*obj
@@ -1236,7 +1253,7 @@ class operatorsum:
         string += self._os[-1].string
         return string
         
-class operatorproduct:
+class operatorproduct(Operator):
     ''' 
     Product of operators.
 
@@ -1258,7 +1275,7 @@ class operatorproduct:
 
     def __add__(self, obj):
 
-        if isinstance(obj, (scalar, operator, operatorproduct)):
+        if isinstance(obj, (scalar, _SingleModeOperator, operatorproduct)):
             return operatorsum([self, obj])
         
         if isinstance(obj, operatorsum):
@@ -1284,7 +1301,7 @@ class operatorproduct:
     def __sub__(self, obj):
         negone = scalar(-1,f'({-1})')
 
-        if isinstance(obj, (scalar, operator, operatorproduct)):
+        if isinstance(obj, (scalar, _SingleModeOperator, operatorproduct)):
             return operatorsum([self, negone * obj])
         
         if isinstance(obj, operatorsum):
@@ -1319,7 +1336,7 @@ class operatorproduct:
         if isinstance(obj, scalar):
             return operatorproduct([obj] + self._op)
 
-        if isinstance(obj, operator):
+        if isinstance(obj, _SingleModeOperator):
             op = [o for o in self._op]
             op.append(obj)
             return operatorproduct(op)
@@ -1391,7 +1408,7 @@ class operatorproduct:
     def op(self, operatorlist):
         self._op = operatorlist
     
-class number(operator):
+class Number(_SingleModeOperator):
     ''' 
     Create a number operator.
 
@@ -1461,6 +1478,9 @@ class number(operator):
             string += str(self._indices[-1])    
         return 'n' + _subscripts(string)
     
+# Backward-compatible historical API.
+number = Number
+
 class hamiltonian:
     ''' Create a hamiltonian.
         

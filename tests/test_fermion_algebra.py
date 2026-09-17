@@ -287,3 +287,59 @@ def test_number_operator_matches_creation_annihilation():
             )
 
             assert direct == composite
+
+
+def test_operator_class_hierarchy():
+    make_model(neff=4, nf=2)
+
+    c = edf.Annihilation(1)
+    cd = edf.Creation(1)
+    n = edf.Number(1)
+
+    assert isinstance(c, edf.Operator)
+    assert isinstance(cd, edf.Operator)
+    assert isinstance(n, edf.Operator)
+
+    product = cd * c
+    operator_sum = c + cd
+
+    assert isinstance(product, edf.Operator)
+    assert isinstance(operator_sum, edf.Operator)
+
+
+def test_legacy_operator_api_aliases():
+    make_model(neff=4, nf=2)
+
+    assert edf.operator is edf.Annihilation
+    assert edf.dagger is edf.Creation
+    assert edf.number is edf.Number
+
+    legacy_c = edf.operator(1)
+    modern_c = edf.Annihilation(1)
+
+    assert type(legacy_c) is type(modern_c)
+    assert legacy_c.site == modern_c.site
+
+    legacy_cd = legacy_c.dag
+    modern_cd = edf.Creation(1)
+
+    assert type(legacy_cd) is type(modern_cd)
+    assert legacy_cd.site == modern_cd.site
+
+
+def test_number_is_not_annihilation_operator():
+    make_model(neff=4, nf=2)
+
+    n = edf.Number(1)
+
+    assert isinstance(n, edf.Operator)
+    assert not isinstance(n, edf.Annihilation)
+
+
+def test_creation_is_not_annihilation_operator():
+    make_model(neff=4, nf=2)
+
+    cd = edf.Creation(1)
+
+    assert isinstance(cd, edf.Operator)
+    assert not isinstance(cd, edf.Annihilation)
