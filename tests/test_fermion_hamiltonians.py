@@ -716,3 +716,48 @@ def test_generic_fallback_is_preserved_for_mixed_products():
                 calculated[final_state],
                 expected_amp,
             )
+
+
+def test_compiled_monomial_masks_handle_repeated_modes():
+    """Repeated-mode products must preserve exact fermionic algebra."""
+    from edinpy.fermion._execution import compile_operator
+
+    make_model(neff=3, nf=1)
+    c = [edf.Annihilation(i) for i in range(3)]
+
+    terms = [
+        c[0] * c[0].dag,
+        c[0] * c[0],
+        c[0].dag * c[1].dag * c[1] * c[0],
+        c[2] * c[1].dag * c[1] * c[2].dag,
+    ]
+
+    for term in terms:
+        compiled = compile_operator(term)
+
+        for state in range(1 << 3):
+            ket_state = edf.vacuum() if state == 0 else edf.fockstate(state)
+            calculated = compiled.apply(ket_state)
+            direct = term * ket_state
+
+            if isinstance(direct, edf.null):
+                expected = {}
+            elif isinstance(direct, edf.fockstate):
+                expected = {direct.state: complex(direct.amp)}
+            elif isinstance(direct, edf.statesum):
+                expected = {}
+                for result_state in direct.states:
+                    expected[result_state.state] = (
+                        expected.get(result_state.state, 0.0j)
+                        + complex(result_state.amp)
+                    )
+            else:
+                raise TypeError(type(direct))
+
+            assert set(calculated) == set(expected)
+
+            for final_state, expected_amp in expected.items():
+                assert np.isclose(
+                    calculated[final_state],
+                    expected_amp,
+                )

@@ -44,10 +44,13 @@ class _HoppingKernel:
 
 @dataclass(frozen=True, slots=True)
 class _MonomialKernel:
-    """General product of fermionic creation and annihilation operators."""
+    """Compiled product of fermionic creation and annihilation operators."""
 
     coefficient: complex
-    operations: tuple[tuple[bool, int], ...]
+    required_occupied_mask: int
+    required_empty_mask: int
+    transition_mask: int
+    parity_mask: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,27 +58,6 @@ class _GenericKernel:
     """Fallback retaining the original symbolic Fock algebra."""
 
     term: object
-
-
-def _apply_monomial(state, amplitude, operations):
-    """Apply a sequence of fermionic operations to an integer Fock state."""
-    current = state
-
-    for creation, site in operations:
-        bit = 1 << site
-
-        if creation:
-            if current & bit:
-                return None
-        elif not current & bit:
-            return None
-
-        if (current & (bit - 1)).bit_count() & 1:
-            amplitude = -amplitude
-
-        current ^= bit
-
-    return current, amplitude
 
 
 class CompiledOperator:
@@ -162,19 +144,24 @@ class CompiledOperator:
                 data.append(amplitude)
 
         for kernel in self._monomial_kernels:
-            result = _apply_monomial(
-                state,
-                kernel.coefficient * ket_amp,
-                kernel.operations,
-            )
-            if result is None:
+            if (
+                state & kernel.required_occupied_mask
+                != kernel.required_occupied_mask
+            ):
                 continue
 
-            final_state, amplitude = result
+            if state & kernel.required_empty_mask:
+                continue
+
+            parity = (state & kernel.parity_mask).bit_count() & 1
+            sign = -1 if parity else 1
+            final_state = state ^ kernel.transition_mask
             row = bisect_left(basis_states, final_state)
 
             if row == nbasis or basis_states[row] != final_state:
                 continue
+
+            amplitude = kernel.coefficient * sign * ket_amp
 
             if amplitude != 0:
                 rows.append(row)
@@ -212,15 +199,20 @@ class CompiledOperator:
                 )
 
         for kernel in self._monomial_kernels:
-            result = _apply_monomial(
-                state,
-                kernel.coefficient * ket_amp,
-                kernel.operations,
-            )
-            if result is None:
+            if (
+                state & kernel.required_occupied_mask
+                != kernel.required_occupied_mask
+            ):
                 continue
 
-            final_state, amplitude = result
+            if state & kernel.required_empty_mask:
+                continue
+
+            parity = (state & kernel.parity_mask).bit_count() & 1
+            sign = -1 if parity else 1
+            final_state = state ^ kernel.transition_mask
+            amplitude = kernel.coefficient * sign * ket_amp
+
             if amplitude != 0:
                 output[final_state] = (
                     output.get(final_state, 0.0j) + amplitude
@@ -315,6 +307,46 @@ def _between_mask(site_i, site_j):
     return (1 << high) - (1 << (low + 1))
 
 
+def _compile_monomial(factors, coefficient):
+    """Compile a fermion monomial into occupancy, transition, and parity masks."""
+    required_occupied_mask = 0
+    required_empty_mask = 0
+    transition_mask = 0
+    parity_mask = 0
+    phase = 1
+
+    for factor in reversed(factors):
+        creation = isinstance(factor, Creation)
+        site = factor.site
+        bit = 1 << site
+        toggled = bool(transition_mask & bit)
+
+        # Occupancy immediately before this operation equals the initial
+        # occupation XOR the parity of earlier toggles on the same mode.
+        requires_occupied = toggled if creation else not toggled
+
+        if requires_occupied:
+            required_occupied_mask |= bit
+        else:
+            required_empty_mask |= bit
+
+        lower_mask = bit - 1
+        parity_mask ^= lower_mask
+
+        if (transition_mask & lower_mask).bit_count() & 1:
+            phase = -phase
+
+        transition_mask ^= bit
+
+    return _MonomialKernel(
+        coefficient=phase * coefficient,
+        required_occupied_mask=required_occupied_mask,
+        required_empty_mask=required_empty_mask,
+        transition_mask=transition_mask,
+        parity_mask=parity_mask,
+    )
+
+
 def _lower_term(term):
     coefficient, factors = _split_product(term)
 
@@ -356,12 +388,9 @@ def _lower_term(term):
             for factor in factors
         )
     ):
-        return _MonomialKernel(
-            coefficient=coefficient,
-            operations=tuple(
-                (isinstance(factor, Creation), factor.site)
-                for factor in reversed(factors)
-            ),
+        return _compile_monomial(
+            factors,
+            coefficient,
         )
 
     return _GenericKernel(term)
