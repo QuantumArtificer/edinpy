@@ -1520,8 +1520,8 @@ class hamiltonian:
         '''
         Calculate the sparse matrix representation of the Hamiltonian.
 
-        Common symbolic operator terms are lowered to direct execution
-        kernels. Unrecognized terms retain the general Fock-algebra path.
+        Fully lowered operators emit sparse entries directly. Operators that
+        require symbolic fallback retain the general compiled-operator path.
         '''
         from bisect import bisect_left
         from numpy import csingle
@@ -1536,20 +1536,32 @@ class hamiltonian:
         basis_states = _fockspace.ls
         compiled = compile_operator(self.opform)
 
-        for column, ket in enumerate(_fockspace.basis):
-            output = compiled.apply(ket)
+        if compiled.fully_lowered:
+            for column, ket in enumerate(_fockspace.basis):
+                compiled.emit_sparse(
+                    ket=ket,
+                    column=column,
+                    basis_states=basis_states,
+                    nbasis=_Nbasis,
+                    rows=rows,
+                    columns=columns,
+                    data=data,
+                )
 
-            for state, amplitude in output.items():
-                row = bisect_left(basis_states, state)
+        else:
+            for column, ket in enumerate(_fockspace.basis):
+                output = compiled.apply(ket)
 
-                # Ignore states outside the active fixed-particle sector.
-                if row == _Nbasis or basis_states[row] != state:
-                    continue
+                for state, amplitude in output.items():
+                    row = bisect_left(basis_states, state)
 
-                if amplitude != 0:
-                    rows.append(row)
-                    columns.append(column)
-                    data.append(amplitude)
+                    if row == _Nbasis or basis_states[row] != state:
+                        continue
+
+                    if amplitude != 0:
+                        rows.append(row)
+                        columns.append(column)
+                        data.append(amplitude)
 
         self.sparse_matrix = coo_array(
             (data, (rows, columns)),

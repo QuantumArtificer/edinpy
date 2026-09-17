@@ -7,6 +7,7 @@ retain the generic symbolic fallback.
 
 from __future__ import annotations
 
+from bisect import bisect_left
 from dataclasses import dataclass
 
 from .fermion import (
@@ -68,18 +69,80 @@ class CompiledOperator:
             if isinstance(kernel, _GenericKernel)
         )
 
+    @property
+    def fully_lowered(self):
+        """True when no symbolic fallback is required."""
+        return not self._generic_kernels
+
+    def emit_sparse(
+        self,
+        ket,
+        column,
+        basis_states,
+        nbasis,
+        rows,
+        columns,
+        data,
+    ):
+        """Emit sparse-matrix entries directly for a fully lowered operator.
+
+        Duplicate matrix entries are intentionally allowed here. The sparse
+        assembly stage combines them with ``sum_duplicates()``.
+        """
+        if not self.fully_lowered:
+            raise RuntimeError(
+                "Direct sparse emission requires a fully lowered operator."
+            )
+
+        state = ket.state
+        ket_amp = ket.amp
+
+        # All diagonal terms contribute to the same matrix element.
+        diagonal = 0.0j
+
+        for kernel in self._number_kernels:
+            if state & kernel.mask == kernel.mask:
+                diagonal += kernel.coefficient
+
+        if diagonal != 0:
+            rows.append(column)
+            columns.append(column)
+            data.append(diagonal * ket_amp)
+
+        # One-body transitions.
+        for kernel in self._hopping_kernels:
+            if not state & kernel.source_bit:
+                continue
+
+            if state & kernel.destination_bit:
+                continue
+
+            parity = (state & kernel.parity_mask).bit_count() & 1
+            sign = -1 if parity else 1
+
+            final_state = state ^ kernel.transition_mask
+            row = bisect_left(basis_states, final_state)
+
+            if row == nbasis or basis_states[row] != final_state:
+                continue
+
+            amplitude = kernel.coefficient * sign * ket_amp
+
+            if amplitude != 0:
+                rows.append(row)
+                columns.append(column)
+                data.append(amplitude)
+
     def apply(self, ket):
-        """Apply the compiled operator to one Fock basis state."""
+        """Apply the compiled operator and combine duplicate output states.
+
+        This general path is retained for operators containing symbolic
+        fallback kernels and for direct use of the execution API.
+        """
         state = ket.state
         ket_amp = ket.amp
         output = {}
 
-        # --------------------------------------------------------------
-        # Diagonal number-operator sector.
-        #
-        # All diagonal contributions are accumulated first so that they
-        # generate at most one dictionary update for this basis state.
-        # --------------------------------------------------------------
         diagonal = 0.0j
 
         for kernel in self._number_kernels:
@@ -89,13 +152,6 @@ class CompiledOperator:
         if diagonal != 0:
             output[state] = diagonal * ket_amp
 
-        # --------------------------------------------------------------
-        # One-body transitions.
-        #
-        # For c_i^dagger c_j, once occupancy constraints are satisfied,
-        # the fermionic sign is determined by the parity of occupied
-        # modes strictly between i and j.
-        # --------------------------------------------------------------
         for kernel in self._hopping_kernels:
             if not state & kernel.source_bit:
                 continue
@@ -114,9 +170,6 @@ class CompiledOperator:
                     output.get(final_state, 0.0j) + amplitude
                 )
 
-        # --------------------------------------------------------------
-        # Generic symbolic fallback.
-        # --------------------------------------------------------------
         for kernel in self._generic_kernels:
             result = kernel.term * ket
 
@@ -197,7 +250,7 @@ def _number_mask(factors):
 
 
 def _between_mask(site_i, site_j):
-    """Bits strictly between two fermionic modes."""
+    """Return the bit mask strictly between two fermionic modes."""
     low = min(site_i, site_j)
     high = max(site_i, site_j)
 

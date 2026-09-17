@@ -527,3 +527,80 @@ def test_lowered_hopping_matches_independent_reference_exhaustively():
                         calculated[final_state],
                         amplitude,
                     )
+
+
+def test_compiler_reports_fully_lowered_status():
+    from edinpy.fermion._execution import compile_operator
+
+    make_model(neff=4, nf=2)
+
+    c0 = edf.Annihilation(0)
+    c1 = edf.Annihilation(1)
+    c2 = edf.Annihilation(2)
+    c3 = edf.Annihilation(3)
+
+    lowered = compile_operator(
+        c0.dag * c1
+        + 2.0 * edf.Number(0) * edf.Number(1)
+    )
+
+    generic = compile_operator(
+        c0.dag * c1.dag * c3 * c2
+    )
+
+    assert lowered.fully_lowered
+    assert not generic.fully_lowered
+
+
+def test_direct_sparse_emission_matches_apply():
+    from edinpy.fermion._execution import compile_operator
+
+    model = make_model(neff=4, nf=2)
+
+    c = [edf.Annihilation(i) for i in range(4)]
+
+    expression = (
+        -1.3 * (c[0].dag * c[1] + c[1].dag * c[0])
+        + 0.7 * (c[2].dag * c[3] + c[3].dag * c[2])
+        + 2.1 * edf.Number(0) * edf.Number(2)
+    )
+
+    compiled = compile_operator(expression)
+    assert compiled.fully_lowered
+
+    rows = []
+    columns = []
+    data = []
+
+    expected = np.zeros(
+        (model.Nbasis, model.Nbasis),
+        dtype=complex,
+    )
+
+    basis = model.fockspace.ls
+    index = {state: i for i, state in enumerate(basis)}
+
+    for column, ket_state in enumerate(model.fockspace.basis):
+        compiled.emit_sparse(
+            ket_state,
+            column,
+            basis,
+            model.Nbasis,
+            rows,
+            columns,
+            data,
+        )
+
+        for state, amplitude in compiled.apply(ket_state).items():
+            expected[index[state], column] += amplitude
+
+    calculated = np.zeros_like(expected)
+
+    for row, column, amplitude in zip(rows, columns, data):
+        calculated[row, column] += amplitude
+
+    np.testing.assert_allclose(
+        calculated,
+        expected,
+        atol=1e-6,
+    )
