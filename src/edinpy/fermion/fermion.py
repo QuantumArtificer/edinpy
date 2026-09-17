@@ -909,18 +909,23 @@ class operator:
         if isinstance(fs,vacuum):
             return null()
         
-        # Annihilate fermion in i-th site
-        if fs.is_occupied(self._site): # if the site occupation number n_i = 1
-            # bit-flip the i-th bit
-            bit2flip = 2**self._site
-            newstate = fs.state^bit2flip
+        # Annihilate a fermion in the i-th mode.
+        if fs.is_occupied(self._site):
+            bit2flip = 1 << self._site
+
+            # Fermionic sign from occupied modes preceding the acted-on mode.
+            preceding_mask = bit2flip - 1
+            parity = (fs.state & preceding_mask).bit_count() & 1
+            sign = -1 if parity else 1
+
+            newstate = fs.state ^ bit2flip
+            amp = sign * fs.amp
+
             if newstate == 0:
-                return vacuum(amp = fs.amp)
-            else:
-                return fockstate(newstate, amp = fs.amp)
-        else:
-            # otherwise annihilate the state
-            return null()
+                return vacuum(amp=amp)
+            return fockstate(newstate, amp=amp)
+
+        return null()
         
     def _action(self,fs):
         '''
@@ -1029,18 +1034,25 @@ class dagger(operator):
         """ Creation operator acting on the i-th site. Notation: state s -> (s,p) where p is probability amplitude
         """
         
-        if isinstance(fs,vacuum):
-            bit2flip = 2**self._site
-            return fockstate( 0^bit2flip, amp = fs.amp)
-        
-        # Annihilate fermion in i-th site
-        if not fs.is_occupied(self._site): # if the site occupation number n_i = 0
-            # bit-flip the i-th bit
-            bit2flip = 2**self._site
-            return fockstate(fs.state^bit2flip, amp = fs.amp)
-        else:
-            # otherwise annihilate the state
-            return null()
+        if isinstance(fs, vacuum):
+            bit2flip = 1 << self._site
+            return fockstate(bit2flip, amp=fs.amp)
+
+        # Create a fermion in the i-th mode.
+        if not fs.is_occupied(self._site):
+            bit2flip = 1 << self._site
+
+            # Fermionic sign from occupied modes preceding the acted-on mode.
+            preceding_mask = bit2flip - 1
+            parity = (fs.state & preceding_mask).bit_count() & 1
+            sign = -1 if parity else 1
+
+            return fockstate(
+                fs.state ^ bit2flip,
+                amp=sign * fs.amp,
+            )
+
+        return null()
         
     def _action(self,obj):
         return self._create(obj)
@@ -1539,7 +1551,7 @@ class hamiltonian:
         else:        
             from numpy.linalg import eigh
             self._eigvals, self._eigvecs = eigh(self.array)
-            self._eigvals = self._eigvals[:, :numeigs]
+            self._eigvals = self._eigvals[:numeigs]
             self._eigvecs = self._eigvecs[:, :numeigs]
 
     @property
