@@ -130,7 +130,6 @@ class model:
         self._Neff = _Neff = prod([dof.N for dof in self._dofs])
         self._Nbasis = _Nbasis = int(fact(self._Neff)/(fact(self._Nf)*fact(self._Neff-self._Nf)))
         self._fockspace = _fockspace = fermionspace()
-        _fockspace.build()
         self._fockspace.build()
 
     def activate(self):

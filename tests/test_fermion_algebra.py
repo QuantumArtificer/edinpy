@@ -364,3 +364,27 @@ def test_canonical_composite_operator_classes():
 def test_legacy_composite_operator_aliases():
     assert edf.operatorproduct is edf.OperatorProduct
     assert edf.operatorsum is edf.OperatorSum
+
+
+def test_model_build_constructs_fockspace_once(monkeypatch):
+    edf.clear()
+    edf.DoF(4, name="orbital")
+
+    calls = 0
+    original_build = edf.fermionspace.build
+
+    def counted_build(self):
+        nonlocal calls
+        calls += 1
+        return original_build(self)
+
+    monkeypatch.setattr(
+        edf.fermionspace,
+        "build",
+        counted_build,
+    )
+
+    model = edf.model(2)
+
+    assert model.Nbasis == 6
+    assert calls == 1
