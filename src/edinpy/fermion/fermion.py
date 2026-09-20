@@ -574,29 +574,34 @@ class fermionspace:
     contains = __contains__
     
     def build(self):
-        """
-        Build the integer representation of the fixed-particle Fock basis.
+        """Construct the fixed-particle-number Fock basis."""
+        global _Nbasis, _Nf
 
-        Fock-state objects are materialized lazily when ``basis`` is first
-        accessed. This avoids unnecessary object construction for optimized
-        Hamiltonian paths that operate directly on integer occupation states.
-        """
-        self.ls = [0 for _ in range(self._Nbasis)]
+        self.ls = [0] * _Nbasis
+        self._basis = None
 
-        if self._Nbasis == 0:
-            self._basis = []
+        if _Nbasis == 0:
             return
 
-        self.ls[0] = self.firstvector()
+        state = (1 << _Nf) - 1
 
-        for i in range(1, self._Nbasis):
-            self.ls[i] = self.nextvector(self.ls[i - 1])
+        for index in range(_Nbasis):
+            self.ls[index] = state
 
-        self._basis = None
+            if index + 1 == _Nbasis:
+                break
+
+            lowest_bit = state & -state
+            ripple = state + lowest_bit
+
+            state = (
+                ripple
+                | (((ripple ^ state) >> 2) // lowest_bit)
+            )
 
     @property
     def basis(self):
-        """Fock-state representation of the integer basis."""
+        """Return the Fock-state basis, materializing it lazily."""
         if self._basis is None:
             self._basis = [
                 fockstate(state, index=index)
@@ -608,7 +613,7 @@ class fermionspace:
     @basis.setter
     def basis(self, basis):
         self._basis = basis
-        
+
     def firstvector(self):
         """ 
         Generate the first fermionic occupation vector in lexicographical order, i.e. the state with lowest integer representation.
