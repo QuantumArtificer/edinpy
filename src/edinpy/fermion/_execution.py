@@ -8,91 +8,43 @@ retain the generic symbolic fallback.
 from __future__ import annotations
 
 from bisect import bisect_left
-from dataclasses import dataclass
 
-from .fermion import (
-    Annihilation,
-    Creation,
-    Number,
-    OperatorProduct,
-    OperatorSum,
-    fockstate,
-    null,
-    scalar,
-    statesum,
+from ._compiler import lower_operator
+from ._ir import (
+    _GenericKernel,
+    _HoppingKernel,
+    _HoppingPairKernel,
+    _MonomialKernel,
+    _NumberProductKernel,
+    _ParityFreeHoppingKernel,
+    _SimpleHoppingKernel,
+)
+from ._basis import (
+    FockState,
+    NullState,
+    StateSum,
 )
 
 
-@dataclass(frozen=True, slots=True)
-class _NumberProductKernel:
-    """Diagonal product of number operators."""
-
-    coefficient: complex
-    mask: int
-
-
-@dataclass(frozen=True, slots=True)
-class _HoppingKernel:
-    """One-body fermionic transition c_i^dagger c_j."""
-
-    coefficient: complex
-    source_bit: int
-    destination_bit: int
-    transition_mask: int
-    parity_mask: int
-
-
-@dataclass(frozen=True, slots=True)
-class _HoppingPairKernel:
-    """Combined hopping transitions between one unordered pair of modes."""
-
-    low_bit: int
-    high_bit: int
-    transition_mask: int
-    parity_mask: int
-    low_from_high: complex
-    high_from_low: complex
-
-
-@dataclass(frozen=True, slots=True)
-class _SimpleHoppingKernel:
-    """Parity-free hopping with the same coefficient in both directions."""
-
-    coefficient: complex
-    transition_mask: int
-
-
-@dataclass(frozen=True, slots=True)
-class _ParityFreeHoppingKernel:
-    """Parity-free hopping with independent directional coefficients."""
-
-    low_bit: int
-    high_bit: int
-    transition_mask: int
-    low_from_high: complex
-    high_from_low: complex
-
-
-@dataclass(frozen=True, slots=True)
-class _MonomialKernel:
-    """Compiled product of fermionic creation and annihilation operators."""
-
-    coefficient: complex
-    required_occupied_mask: int
-    required_empty_mask: int
-    transition_mask: int
-    parity_mask: int
-
-
-@dataclass(frozen=True, slots=True)
-class _GenericKernel:
-    """Fallback retaining the original symbolic Fock algebra."""
-
-    term: object
-
-
 def _group_hopping_kernels(kernels):
-    """Combine directed hopping terms acting on the same pair of modes."""
+    """Combine directed hopping terms acting on the same unordered mode pair.
+
+    Parameters
+    ----------
+    kernels : iterable of _HoppingKernel
+        Directed one-body transitions produced by the compiler.
+
+    Returns
+    -------
+    tuple[_HoppingPairKernel, ...]
+        Pair kernels containing independent coefficients for both directions.
+
+    Notes
+    -----
+    Grouping is performed by a hash key containing the two mode bits and the
+    parity mask. It therefore scales linearly with the number of hopping terms
+    rather than comparing all pairs of terms.
+    """
     groups = {}
 
     for kernel in kernels:
@@ -107,7 +59,7 @@ def _group_hopping_kernels(kernels):
 
         low_from_high, high_from_low = groups.get(
             key,
-            (0.0j, 0.0j),
+            (0.0, 0.0),
         )
 
         if kernel.source_bit == low_bit:
@@ -138,6 +90,32 @@ class CompiledOperator:
     """Lowered executable representation of a symbolic operator."""
 
     def __init__(self, kernels):
+        """Organize lowered kernels into specialized execution categories.
+
+        Parameters
+        ----------
+        kernels : iterable
+            Intermediate-representation kernels produced by
+            :func:`edinpy.fermion._compiler.lower_operator`.
+
+        Notes
+        -----
+        Directed hopping terms are first grouped by unordered mode pair.
+        Pair kernels are then separated into symmetric parity-free,
+        asymmetric parity-free, and signed transitions so each class can use
+        the simplest matrix-emission path available.
+        """
+        kernels = tuple(kernels)
+        coefficients = [
+            kernel.coefficient
+            for kernel in kernels
+            if hasattr(kernel, "coefficient")
+        ]
+        self._real_valued = all(
+            complex(coefficient).imag == 0
+            for coefficient in coefficients
+        )
+
         self._number_kernels = tuple(
             kernel
             for kernel in kernels
@@ -204,8 +182,21 @@ class CompiledOperator:
         )
 
     @property
+    def data_dtype(self):
+        """numpy.dtype: Double-precision matrix-element dtype for lowered kernels."""
+        import numpy as np
+
+        return np.float64 if self._real_valued else np.complex128
+
+    def _coerce_coefficient(self, value):
+        """Return a scalar compatible with the selected matrix-element dtype."""
+        if self._real_valued:
+            return complex(value).real
+        return complex(value)
+
+    @property
     def fully_lowered(self):
-        """True when no symbolic fallback is required."""
+        """bool: Whether no symbolic fallback kernels are present."""
         return not self._generic_kernels
 
     def emit_sparse(
@@ -230,7 +221,7 @@ class CompiledOperator:
 
         state = ket.state
         ket_amp = ket.amp
-        diagonal = 0.0j
+        diagonal = 0.0 if self._real_valued else 0.0j
 
         for kernel in self._number_kernels:
             if state & kernel.mask == kernel.mask:
@@ -352,9 +343,31 @@ class CompiledOperator:
     def _emit_simple_hopping_csc_vectorized(
         self,
         basis_states,
+        n_modes,
         block_size=32768,
     ):
-        """Emit pure parity-free symmetric hopping in vectorized blocks."""
+        """Emit symmetric parity-free hopping directly into CSC arrays.
+
+        Parameters
+        ----------
+        basis_states : sequence of int
+            Ordered fixed-particle-number occupation bit strings.
+        n_modes : int
+            Total number of fermionic modes.
+        block_size : int, optional
+            Number of basis columns processed per NumPy block.
+
+        Returns
+        -------
+        indices, indptr, data : numpy.ndarray
+            Arrays defining the CSC matrix representation.
+
+        Notes
+        -----
+        This path is used only for at most 64 modes because NumPy's native
+        unsigned-integer vectorization is used for occupation masks and state
+        transitions. Larger mode sets fall back to Python-integer execution.
+        """
         import math
         import numpy as np
 
@@ -364,10 +377,10 @@ class CompiledOperator:
             return (
                 np.empty(0, dtype=np.int32),
                 np.zeros(1, dtype=np.int32),
-                np.empty(0, dtype=np.complex64),
+                np.empty(0, dtype=self.data_dtype),
             )
 
-        neff = basis_states[-1].bit_length()
+        neff = n_modes
         n_particles = basis_states[0].bit_count()
 
         # NumPy integer bitwise kernels are currently limited to a native
@@ -421,10 +434,10 @@ class CompiledOperator:
 
         coefficients = np.asarray(
             [
-                kernel.coefficient
+                self._coerce_coefficient(kernel.coefficient)
                 for kernel in kernels
             ],
-            dtype=np.complex64,
+            dtype=self.data_dtype,
         )
 
         indices = np.empty(
@@ -434,7 +447,7 @@ class CompiledOperator:
 
         data = np.empty(
             capacity,
-            dtype=np.complex64,
+            dtype=self.data_dtype,
         )
 
         indptr = np.empty(
@@ -523,9 +536,31 @@ class CompiledOperator:
     def _emit_simple_terms_csc_vectorized(
         self,
         basis_states,
+        n_modes,
         block_size=32768,
     ):
-        """Emit vectorizable hopping and number products in blocked form."""
+        """Emit diagonal number products and simple hopping in blocked form.
+
+        Parameters
+        ----------
+        basis_states : sequence of int
+            Ordered fixed-particle-number occupation bit strings.
+        n_modes : int
+            Total number of fermionic modes.
+        block_size : int, optional
+            Number of basis columns processed per NumPy block.
+
+        Returns
+        -------
+        indices, indptr, data : numpy.ndarray
+            Arrays defining the CSC matrix representation.
+
+        Notes
+        -----
+        All diagonal number products acting on one basis state are accumulated
+        into one diagonal matrix element before the off-diagonal hopping entries
+        are emitted.
+        """
         import math
         import numpy as np
 
@@ -535,10 +570,10 @@ class CompiledOperator:
             return (
                 np.empty(0, dtype=np.int32),
                 np.zeros(1, dtype=np.int32),
-                np.empty(0, dtype=np.complex64),
+                np.empty(0, dtype=self.data_dtype),
             )
 
-        neff = basis_states[-1].bit_length()
+        neff = n_modes
         n_particles = basis_states[0].bit_count()
 
         if neff > 64:
@@ -596,10 +631,10 @@ class CompiledOperator:
 
         hopping_coefficients = np.asarray(
             [
-                kernel.coefficient
+                self._coerce_coefficient(kernel.coefficient)
                 for kernel in hopping_kernels
             ],
-            dtype=np.complex64,
+            dtype=self.data_dtype,
         )
 
         number_masks = np.asarray(
@@ -612,10 +647,10 @@ class CompiledOperator:
 
         number_coefficients = np.asarray(
             [
-                kernel.coefficient
+                self._coerce_coefficient(kernel.coefficient)
                 for kernel in number_kernels
             ],
-            dtype=np.complex64,
+            dtype=self.data_dtype,
         )
 
         indices = np.empty(
@@ -625,7 +660,7 @@ class CompiledOperator:
 
         data = np.empty(
             capacity,
-            dtype=np.complex64,
+            dtype=self.data_dtype,
         )
 
         indptr = np.empty(
@@ -652,7 +687,7 @@ class CompiledOperator:
 
             diagonal = np.zeros(
                 nblock,
-                dtype=np.complex64,
+                dtype=self.data_dtype,
             )
 
             for mask, coefficient in zip(
@@ -731,7 +766,7 @@ class CompiledOperator:
 
             value_buffer = np.empty(
                 (nblock, nhopping + 1),
-                dtype=np.complex64,
+                dtype=self.data_dtype,
             )
 
             # Diagonal column.
@@ -785,9 +820,31 @@ class CompiledOperator:
     def _emit_number_conserving_monomials_csc_vectorized(
         self,
         basis_states,
+        n_modes,
         block_size=32768,
     ):
-        """Emit number-conserving fermion monomials in vectorized blocks."""
+        """Emit number-conserving fermionic monomials in vectorized blocks.
+
+        Parameters
+        ----------
+        basis_states : sequence of int
+            Ordered fixed-particle-number occupation bit strings.
+        n_modes : int
+            Total number of fermionic modes.
+        block_size : int, optional
+            Number of basis columns processed per NumPy block.
+
+        Returns
+        -------
+        indices, indptr, data : numpy.ndarray
+            Arrays defining the CSC matrix representation.
+
+        Notes
+        -----
+        Initial occupied/empty constraints select active monomials. Final
+        states are generated by XOR with the compiled transition mask, and
+        the fermionic sign is obtained from the parity mask.
+        """
         import math
         import numpy as np
 
@@ -797,10 +854,10 @@ class CompiledOperator:
             return (
                 np.empty(0, dtype=np.int32),
                 np.zeros(1, dtype=np.int32),
-                np.empty(0, dtype=np.complex64),
+                np.empty(0, dtype=self.data_dtype),
             )
 
-        neff = basis_states[-1].bit_length()
+        neff = n_modes
         n_particles = basis_states[0].bit_count()
 
         if neff > 64:
@@ -885,10 +942,10 @@ class CompiledOperator:
 
         coefficients = np.asarray(
             [
-                kernel.coefficient
+                self._coerce_coefficient(kernel.coefficient)
                 for kernel in kernels
             ],
-            dtype=np.complex64,
+            dtype=self.data_dtype,
         )
 
         indices = np.empty(
@@ -898,7 +955,7 @@ class CompiledOperator:
 
         data = np.empty(
             capacity,
-            dtype=np.complex64,
+            dtype=self.data_dtype,
         )
 
         indptr = np.empty(
@@ -1014,34 +1071,49 @@ class CompiledOperator:
             data,
         )
 
-    def emit_csc(self, basis_states):
-        """Emit preallocated CSC arrays from integer Fock basis states."""
+    def emit_csc(self, basis_states, n_modes):
+        """Emit preallocated CSC arrays from integer Fock basis states.
+
+        Parameters
+        ----------
+        basis_states : sequence of int
+            Ordered occupation bit strings.
+        n_modes : int
+            Total number of fermionic modes. This value is supplied explicitly
+            because it cannot be inferred from vacuum occupation bit strings.
+
+        Returns
+        -------
+        indices, indptr, data : numpy.ndarray
+            CSC storage arrays.
+        """
         if not self.fully_lowered:
             raise RuntimeError(
                 "Direct matrix emission requires a fully lowered operator."
             )
 
-        neff = (
-            basis_states[-1].bit_length()
-            if basis_states
-            else 0
-        )
+        neff = int(n_modes)
+        if neff < 0:
+            raise ValueError("'n_modes' must be non-negative.")
 
         if neff <= 64:
             if self.vectorized_simple_hopping:
                 return self._emit_simple_hopping_csc_vectorized(
-                    basis_states
+                    basis_states,
+                    neff,
                 )
 
             if self.vectorized_simple_terms:
                 return self._emit_simple_terms_csc_vectorized(
-                    basis_states
+                    basis_states,
+                    neff,
                 )
 
             if self.vectorized_number_conserving_monomials:
                 return (
                     self._emit_number_conserving_monomials_csc_vectorized(
-                        basis_states
+                        basis_states,
+                        neff,
                     )
                 )
 
@@ -1054,11 +1126,11 @@ class CompiledOperator:
             return (
                 np.empty(0, dtype=np.int32),
                 np.zeros(1, dtype=np.int32),
-                np.empty(0, dtype=np.complex64),
+                np.empty(0, dtype=self.data_dtype),
             )
 
         n_particles = basis_states[0].bit_count()
-        neff = basis_states[-1].bit_length()
+        neff = int(n_modes)
 
         number_kernels = self._number_kernels
         simple_hopping_kernels = self._simple_hopping_kernels
@@ -1170,7 +1242,7 @@ class CompiledOperator:
 
         data = np.empty(
             capacity,
-            dtype=np.complex64,
+            dtype=self.data_dtype,
         )
 
         indptr = np.empty(
@@ -1182,7 +1254,7 @@ class CompiledOperator:
         cursor = 0
 
         for column, state in enumerate(basis_states):
-            diagonal = 0.0j
+            diagonal = 0.0 if self._real_valued else 0.0j
 
             for kernel in number_kernels:
                 if state & kernel.mask == kernel.mask:
@@ -1207,7 +1279,7 @@ class CompiledOperator:
 
                 if row != missing_index:
                     indices[cursor] = row
-                    data[cursor] = kernel.coefficient
+                    data[cursor] = self._coerce_coefficient(kernel.coefficient)
                     cursor += 1
 
             for kernel in parity_free_hopping_kernels:
@@ -1295,11 +1367,24 @@ class CompiledOperator:
         )
 
     def apply(self, ket):
-        """Apply the compiled operator and combine duplicate output states."""
+        """Apply the compiled operator to one Fock state.
+
+        Parameters
+        ----------
+        ket : FockState
+            Input occupation-number state.
+
+        Returns
+        -------
+        dict[int, numbers.Number]
+            Mapping from output occupation bit strings to accumulated
+            amplitudes. Duplicate contributions from different symbolic terms
+            are summed before returning.
+        """
         state = ket.state
         ket_amp = ket.amp
         output = {}
-        diagonal = 0.0j
+        diagonal = 0.0 if self._real_valued else 0.0j
 
         for kernel in self._number_kernels:
             if state & kernel.mask == kernel.mask:
@@ -1354,10 +1439,10 @@ class CompiledOperator:
         for kernel in self._generic_kernels:
             result = kernel.term * ket
 
-            if isinstance(result, null):
+            if isinstance(result, NullState):
                 continue
 
-            if isinstance(result, fockstate):
+            if isinstance(result, FockState):
                 if result.amp != 0:
                     output[result.state] = (
                         output.get(result.state, 0.0j)
@@ -1365,7 +1450,7 @@ class CompiledOperator:
                     )
                 continue
 
-            if isinstance(result, statesum):
+            if isinstance(result, StateSum):
                 for result_state in result.states:
                     if result_state.amp != 0:
                         output[result_state.state] = (
@@ -1383,6 +1468,7 @@ class CompiledOperator:
 
     @property
     def stats(self):
+        """dict[str, int]: Counts of lowered kernels by execution category."""
         return {
             "number_product": len(self._number_kernels),
             "hopping": self._hopping_term_count,
@@ -1392,146 +1478,20 @@ class CompiledOperator:
         }
 
 
-def _flatten_sum(operator):
-    """Yield additive terms from a nested OperatorSum."""
-    if isinstance(operator, OperatorSum):
-        for term in operator.os:
-            yield from _flatten_sum(term)
-    else:
-        yield operator
-
-
-def _split_product(term):
-    """Separate the numerical coefficient from operator factors."""
-    coefficient = 1.0
-
-    if isinstance(term, scalar):
-        return term.value, []
-
-    if isinstance(term, OperatorProduct):
-        factors = []
-
-        for factor in term.op:
-            if isinstance(factor, scalar):
-                coefficient *= factor.value
-            else:
-                factors.append(factor)
-
-        return coefficient, factors
-
-    return coefficient, [term]
-
-
-def _number_mask(factors):
-    """Return the occupancy mask required by number operators."""
-    mask = 0
-    for factor in factors:
-        mask |= 1 << factor.site
-    return mask
-
-
-def _between_mask(site_i, site_j):
-    """Return the bit mask strictly between two fermionic modes."""
-    low = min(site_i, site_j)
-    high = max(site_i, site_j)
-
-    if high - low <= 1:
-        return 0
-
-    return (1 << high) - (1 << (low + 1))
-
-
-def _compile_monomial(factors, coefficient):
-    """Compile a fermion monomial into occupancy, transition, and parity masks."""
-    required_occupied_mask = 0
-    required_empty_mask = 0
-    transition_mask = 0
-    parity_mask = 0
-    phase = 1
-
-    for factor in reversed(factors):
-        creation = isinstance(factor, Creation)
-        site = factor.site
-        bit = 1 << site
-        toggled = bool(transition_mask & bit)
-
-        # Occupancy immediately before this operation equals the initial
-        # occupation XOR the parity of earlier toggles on the same mode.
-        requires_occupied = toggled if creation else not toggled
-
-        if requires_occupied:
-            required_occupied_mask |= bit
-        else:
-            required_empty_mask |= bit
-
-        lower_mask = bit - 1
-        parity_mask ^= lower_mask
-
-        if (transition_mask & lower_mask).bit_count() & 1:
-            phase = -phase
-
-        transition_mask ^= bit
-
-    return _MonomialKernel(
-        coefficient=phase * coefficient,
-        required_occupied_mask=required_occupied_mask,
-        required_empty_mask=required_empty_mask,
-        transition_mask=transition_mask,
-        parity_mask=parity_mask,
-    )
-
-
-def _lower_term(term):
-    coefficient, factors = _split_product(term)
-
-    if all(isinstance(factor, Number) for factor in factors):
-        return _NumberProductKernel(
-            coefficient=coefficient,
-            mask=_number_mask(factors),
-        )
-
-    if (
-        len(factors) == 2
-        and isinstance(factors[0], Creation)
-        and isinstance(factors[1], Annihilation)
-    ):
-        destination = factors[0].site
-        source = factors[1].site
-
-        if destination == source:
-            return _NumberProductKernel(
-                coefficient=coefficient,
-                mask=1 << source,
-            )
-
-        source_bit = 1 << source
-        destination_bit = 1 << destination
-
-        return _HoppingKernel(
-            coefficient=coefficient,
-            source_bit=source_bit,
-            destination_bit=destination_bit,
-            transition_mask=source_bit | destination_bit,
-            parity_mask=_between_mask(destination, source),
-        )
-
-    if (
-        factors
-        and all(
-            isinstance(factor, (Creation, Annihilation))
-            for factor in factors
-        )
-    ):
-        return _compile_monomial(
-            factors,
-            coefficient,
-        )
-
-    return _GenericKernel(term)
-
-
 def compile_operator(operator):
-    """Lower a symbolic fermionic operator into executable kernels."""
+    """Compile symbolic fermionic algebra into executable kernels.
+
+    Parameters
+    ----------
+    operator : Operator
+        Literal symbolic operator expression.
+
+    Returns
+    -------
+    CompiledOperator
+        Execution container produced from the lowered intermediate
+        representation.
+    """
     return CompiledOperator(
-        [_lower_term(term) for term in _flatten_sum(operator)]
+        lower_operator(operator)
     )

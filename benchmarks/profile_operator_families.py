@@ -1,14 +1,11 @@
-"""Benchmark optimized fermionic operator families."""
+"""Benchmark representative optimized fermionic operator families."""
 
 from __future__ import annotations
 
 import argparse
-import os
 import time
-from contextlib import redirect_stdout
 from math import comb
 
-# Exclude one-time numerical-library imports from benchmark timings.
 import numpy as np
 import scipy.sparse
 
@@ -17,69 +14,81 @@ from edinpy.fermion._execution import compile_operator
 
 
 def _sum_terms(terms):
-    expression = None
+    """Return the symbolic sum of an iterable of operator terms."""
+    expression = 0
     for term in terms:
-        expression = term if expression is None else expression + term
+        expression = expression + term
     return expression
 
 
 def build_operator_family(length, particles, family):
-    edf.clear()
-    edf.DoF(length, name="site")
+    """Construct one benchmark Hamiltonian family.
 
-    t0 = time.perf_counter()
-    model = edf.model(particles)
-    basis_time = time.perf_counter() - t0
+    Parameters
+    ----------
+    length : int
+        Number of fermionic modes.
+    particles : int
+        Fixed fermion number.
+    family : {'hopping', 'density', 'quartic', 'mixed'}
+        Operator family to benchmark.
 
-    c = [edf.Annihilation(i) for i in range(length)]
+    Returns
+    -------
+    sector : NParticleSector
+        Fixed-particle-number sector.
+    hamiltonian : Hamiltonian
+        Hamiltonian object for the benchmark expression.
+    compiled : CompiledOperator
+        Lowered execution object used for kernel statistics.
+    basis_time : float
+        Sector and basis construction time in seconds.
+    """
+    modes = edf.FermionModes(edf.DoF(length, name="mode"))
+
+    start = time.perf_counter()
+    sector = edf.NParticleSector(modes, N=particles)
+    basis_time = time.perf_counter() - start
+
+    c = edf.set_notation(edf.Annihilation, modes)
+    cd = edf.set_notation(edf.Creation, modes)
+    n = edf.set_notation(edf.Number, modes)
 
     if family == "hopping":
         terms = []
         for i in range(length - 1):
-            terms.extend(
-                (
-                    -1.0 * c[i].dag * c[i + 1],
-                    -1.0 * c[i + 1].dag * c[i],
-                )
-            )
-
+            terms.extend((
+                -cd(i) * c(i + 1),
+                -cd(i + 1) * c(i),
+            ))
     elif family == "density":
-        terms = [
-            edf.Number(i) * edf.Number(i + 1)
-            for i in range(length - 1)
-        ]
-
+        terms = [n(i) * n(i + 1) for i in range(length - 1)]
     elif family == "quartic":
         terms = []
         for i in range(0, length - 3, 2):
-            pair_transfer = (
-                c[i].dag * c[i + 1].dag * c[i + 3] * c[i + 2]
-            )
-            terms.extend((pair_transfer, pair_transfer.dag))
-
+            transfer = cd(i) * cd(i + 1) * c(i + 3) * c(i + 2)
+            terms.extend((transfer, transfer.dag))
     elif family == "mixed":
         terms = []
         for i in range(length - 1):
-            terms.extend(
-                (
-                    -1.0 * c[i].dag * c[i + 1],
-                    -1.0 * c[i + 1].dag * c[i],
-                    0.5 * edf.Number(i) * edf.Number(i + 1),
-                )
-            )
-
+            terms.extend((
+                -cd(i) * c(i + 1),
+                -cd(i + 1) * c(i),
+                0.5 * n(i) * n(i + 1),
+            ))
     else:
-        raise ValueError(f"Unknown family: {family}")
+        raise ValueError(f"Unknown operator family: {family}")
 
     expression = _sum_terms(terms)
     compiled = compile_operator(expression)
-
-    return model, edf.hamiltonian(expression), compiled, basis_time
+    hamiltonian = edf.Hamiltonian(expression, sector)
+    return sector, hamiltonian, compiled, basis_time
 
 
 def main():
+    """Run the requested benchmark families and print timing statistics."""
     _ = np.empty(0)
-    _ = scipy.sparse.csr_array((0, 0))
+    _ = scipy.sparse.csc_matrix((0, 0))
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--length", type=int, default=16)
@@ -99,22 +108,20 @@ def main():
     )
 
     for family in args.families:
-        model, hamiltonian, compiled, basis_time = build_operator_family(
+        sector, hamiltonian, compiled, basis_time = build_operator_family(
             args.length,
             args.particles,
             family,
         )
-
-        with open(os.devnull, "w") as devnull, redirect_stdout(devnull):
-            t0 = time.perf_counter()
-            hamiltonian.calc_matrix()
-            matrix_time = time.perf_counter() - t0
+        start = time.perf_counter()
+        matrix = hamiltonian.calc_matrix()
+        matrix_time = time.perf_counter() - start
 
         print(
             f"{family:8s} "
             f"basis={basis_time:.6f} s  "
             f"matrix={matrix_time:.6f} s  "
-            f"nnz={hamiltonian.sparse_matrix.nnz:8d}  "
+            f"nnz={matrix.nnz:8d}  "
             f"kernels={compiled.stats}"
         )
 

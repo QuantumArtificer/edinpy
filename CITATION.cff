@@ -1,0 +1,15 @@
+cff-version: 1.2.0
+title: EDinPy
+message: "If EDinPy contributes to published research, cite the archived software release and the numerical-method references relevant to the calculation."
+type: software
+authors:
+  - family-names: Santacruz
+    given-names: Alex
+version: 0.1.0
+license: MIT
+repository-code: https://github.com/QuantumArtificer/edinpy
+keywords:
+  - exact diagonalization
+  - many-body physics
+  - fermions
+  - quantum lattice models

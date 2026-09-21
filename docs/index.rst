@@ -1,20 +1,16 @@
-.. edinpy documentation master file, created by
-   sphinx-quickstart on Tue Jan 23 20:50:01 2024.
-   You can adapt this file completely to your liking, but it should at least
-   contain the root `toctree` directive.
+EDinPy
+======
 
-Welcome to edinpy's documentation!
-==================================
+EDinPy provides exact diagonalization for discrete finite many-body systems.
+The fermionic implementation uses explicit fermionic modes, fixed-particle-number
+sectors, literal second-quantized algebra, structural compilation, sparse matrix
+construction, and Hermitian eigensolution.
 
 .. toctree::
    :maxdepth: 2
-   :caption: Contents:
+   :caption: Documentation
 
-   modules
-
-Indices and tables
-==================
-
-* :ref:`genindex`
-* :ref:`modindex`
-* :ref:`search`
+   fermion_workflow
+   fermion_api
+   numerical_methods
+   limitations

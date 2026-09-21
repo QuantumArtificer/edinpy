@@ -1,0 +1,28 @@
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Documentation builds
+docs/_build/
+
+# Environments and local tooling
+.venv/
+venv/
+.env
+.idea/
+.vscode/
+
+# Profiling and coverage
+*.prof
+.coverage
+htmlcov/
+coverage.xml

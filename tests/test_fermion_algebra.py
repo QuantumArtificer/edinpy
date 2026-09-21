@@ -2,409 +2,124 @@ import numpy as np
 import pytest
 
 from edinpy import fermion as edf
+from edinpy.fermion._basis import NullState, StateSum
 
 
-def make_model(neff=2, nf=1):
-    """Initialize a simple fermionic model with `neff` effective orbitals."""
-    edf.clear()
-    edf.DoF(neff, name="orbital")
-    return edf.model(nf)
-
-
-def ket(state):
-    """Construct a Fock state from its integer occupation representation."""
-    if state == 0:
-        return edf.vacuum()
-    return edf.fockstate(state)
-
-
-def components(result):
-    """Return {state: amplitude} for an EDinPy state-like result."""
-    if isinstance(result, edf.null):
+def as_map(result):
+    if isinstance(result, NullState):
         return {}
-
-    if isinstance(result, edf.fockstate):
-        return {result.state: complex(result.amp)}
-
-    if isinstance(result, edf.statesum):
+    if isinstance(result, edf.FockState):
+        return {result.state: result.amp}
+    if isinstance(result, StateSum):
         out = {}
         for state in result.states:
-            out[state.state] = out.get(state.state, 0.0j) + complex(state.amp)
-        return {s: a for s, a in out.items() if not np.isclose(a, 0.0)}
-
-    raise TypeError(f"Unsupported result type: {type(result)}")
-
-
-def apply_product(*operators, state):
-    """
-    Apply O_1 O_2 ... O_n |state>, with operators supplied
-    in the same left-to-right order.
-    """
-    result = ket(state)
-
-    for op in reversed(operators):
-        result = op * result
-
-    return result
+            out[state.state] = out.get(state.state, 0) + state.amp
+        return {state: amp for state, amp in out.items() if amp != 0}
+    raise TypeError(type(result))
 
 
-def add_results(*results):
-    """Add state amplitudes from several operator-action results."""
+def add_maps(*maps):
     out = {}
-
-    for result in results:
-        for state, amp in components(result).items():
-            out[state] = out.get(state, 0.0j) + amp
-
-    return {s: a for s, a in out.items() if not np.isclose(a, 0.0)}
+    for mapping in maps:
+        for state, amp in mapping.items():
+            out[state] = out.get(state, 0) + amp
+    return {state: amp for state, amp in out.items() if amp != 0}
 
 
-def assert_single_state(result, state, amplitude=1.0):
-    result = components(result)
-
-    assert set(result) == {state}
-    assert np.isclose(result[state], amplitude)
-
-
-def assert_zero(result):
-    assert result == {}
+def test_set_notation_leaves_symbol_choice_to_user():
+    modes = edf.FermionModes(edf.DoF(4, "site"), edf.DoF(2, "spin"))
+    psi = edf.set_notation(edf.Annihilation, modes)
+    assert psi(2, 1).mode == modes.resolve((2, 1))
+    assert psi.operator_type is edf.Annihilation
+    assert psi.modes is modes
 
 
-def test_fixed_particle_number_basis_enumeration():
-    model = make_model(neff=4, nf=2)
-
-    assert model.Neff == 4
-    assert model.Nbasis == 6
-
-    # All four-bit states with exactly two occupied orbitals,
-    # ordered by their integer representation.
-    assert model.fockspace.ls == [3, 5, 6, 9, 10, 12]
+def test_set_notation_accepts_tuple_input():
+    modes = edf.FermionModes(edf.DoF(3), edf.DoF(2))
+    c = edf.set_notation(edf.Annihilation, modes)
+    assert c((2, 1)).mode == c(2, 1).mode
 
 
-def test_single_mode_creation_and_annihilation():
-    make_model(neff=2, nf=1)
-
-    c0 = edf.operator(0)
-    cd0 = c0.dag
-
-    assert isinstance(c0 * ket(0), edf.null)
-    assert_single_state(cd0 * ket(0), 1)
-
-    assert_single_state(c0 * ket(1), 0)
-    assert isinstance(cd0 * ket(1), edf.null)
+def test_bound_notation_rejects_flat_mode_for_multidof_modes():
+    modes = edf.FermionModes(edf.DoF(3), edf.DoF(2))
+    c = edf.set_notation(edf.Annihilation, modes)
+    with pytest.raises(ValueError):
+        c(4)
 
 
-def test_number_operator():
-    make_model(neff=2, nf=1)
-
-    n0 = edf.number(0)
-
-    assert_single_state(n0 * ket(1), 1)
-    assert isinstance(n0 * ket(2), edf.null)
+def test_primitive_constructor_allows_explicit_flat_mode():
+    modes = edf.FermionModes(edf.DoF(3), edf.DoF(2))
+    assert edf.Annihilation(4, modes=modes).mode == 4
 
 
-@pytest.mark.parametrize("state", [0, 1, 2, 3])
-def test_same_mode_canonical_anticommutator(state):
-    """
-    {c_0, c_0^dagger} = 1.
-    """
-    make_model(neff=2, nf=1)
+@pytest.mark.parametrize("n_modes", [1, 2, 3, 4])
+def test_canonical_anticommutation_relations(n_modes):
+    modes = edf.FermionModes(edf.DoF(n_modes))
+    c = edf.set_notation(edf.Annihilation, modes)
+    cd = edf.set_notation(edf.Creation, modes)
 
-    c0 = edf.operator(0)
-    cd0 = c0.dag
-
-    result = add_results(
-        apply_product(c0, cd0, state=state),
-        apply_product(cd0, c0, state=state),
-    )
-
-    assert set(result) == {state}
-    assert np.isclose(result[state], 1.0)
-
-
-def test_annihilation_has_fermionic_parity():
-    """
-    For mode ordering 0,1:
-
-        c_1 |11> = -|10>
-
-    where the integer state representation is:
-        |11> -> 3
-        |10> -> 1
-
-    because mode 0 is occupied and precedes mode 1.
-    """
-    make_model(neff=2, nf=1)
-
-    c1 = edf.operator(1)
-
-    assert_single_state(c1 * ket(3), 1, amplitude=-1.0)
-
-
-def test_creation_has_fermionic_parity():
-    """
-    c_1^dagger |10> = -|11>.
-    """
-    make_model(neff=2, nf=1)
-
-    cd1 = edf.operator(1).dag
-
-    assert_single_state(cd1 * ket(1), 3, amplitude=-1.0)
-
-
-def test_different_mode_annihilators_anticommute():
-    """
-    {c_0, c_1} = 0.
-    """
-    make_model(neff=2, nf=1)
-
-    c0 = edf.operator(0)
-    c1 = edf.operator(1)
-
-    result = add_results(
-        apply_product(c0, c1, state=3),
-        apply_product(c1, c0, state=3),
-    )
-
-    assert_zero(result)
-
-
-def test_different_mode_creation_annihilation_anticommute():
-    """
-    {c_0, c_1^dagger} = 0 for 0 != 1.
-    """
-    make_model(neff=2, nf=1)
-
-    c0 = edf.operator(0)
-    cd1 = edf.operator(1).dag
-
-    result = add_results(
-        apply_product(c0, cd1, state=1),
-        apply_product(cd1, c0, state=1),
-    )
-
-    assert_zero(result)
-
-
-def test_different_mode_creators_anticommute():
-    """
-    {c_0^dagger, c_1^dagger} = 0.
-    """
-    make_model(neff=2, nf=1)
-
-    cd0 = edf.operator(0).dag
-    cd1 = edf.operator(1).dag
-
-    result = add_results(
-        apply_product(cd0, cd1, state=0),
-        apply_product(cd1, cd0, state=0),
-    )
-
-    assert_zero(result)
-
-
-def test_exhaustive_canonical_anticommutation_relations():
-    """
-    Verify the canonical anticommutation relations on the complete local
-    Fock space of four fermionic modes:
-
-        {c_i, c_j} = 0
-        {c_i^dagger, c_j^dagger} = 0
-        {c_i, c_j^dagger} = delta_ij
-    """
-    neff = 4
-    make_model(neff=neff, nf=2)
-
-    annihilation = [edf.operator(i) for i in range(neff)]
-    creation = [op.dag for op in annihilation]
-
-    for state in range(1 << neff):
-        for i in range(neff):
-            for j in range(neff):
-                cc = add_results(
-                    apply_product(
-                        annihilation[i],
-                        annihilation[j],
-                        state=state,
-                    ),
-                    apply_product(
-                        annihilation[j],
-                        annihilation[i],
-                        state=state,
-                    ),
+    for state_int in range(1 << n_modes):
+        ket = edf.FockState(state_int, n_modes=n_modes)
+        for i in range(n_modes):
+            for j in range(n_modes):
+                cc = add_maps(
+                    as_map(c(i) * (c(j) * ket)),
+                    as_map(c(j) * (c(i) * ket)),
                 )
-                assert_zero(cc)
-
-                cdcd = add_results(
-                    apply_product(
-                        creation[i],
-                        creation[j],
-                        state=state,
-                    ),
-                    apply_product(
-                        creation[j],
-                        creation[i],
-                        state=state,
-                    ),
+                dd = add_maps(
+                    as_map(cd(i) * (cd(j) * ket)),
+                    as_map(cd(j) * (cd(i) * ket)),
                 )
-                assert_zero(cdcd)
-
-                ccd = add_results(
-                    apply_product(
-                        annihilation[i],
-                        creation[j],
-                        state=state,
-                    ),
-                    apply_product(
-                        creation[j],
-                        annihilation[i],
-                        state=state,
-                    ),
+                mixed = add_maps(
+                    as_map(c(i) * (cd(j) * ket)),
+                    as_map(cd(j) * (c(i) * ket)),
                 )
-
-                if i == j:
-                    assert set(ccd) == {state}
-                    assert np.isclose(ccd[state], 1.0)
-                else:
-                    assert_zero(ccd)
+                assert cc == {}
+                assert dd == {}
+                expected = {state_int: 1} if i == j else {}
+                assert mixed == expected
 
 
 def test_number_operator_matches_creation_annihilation():
-    """
-    n_i = c_i^dagger c_i on every local Fock state.
-    """
-    neff = 4
-    make_model(neff=neff, nf=2)
-
-    for state in range(1 << neff):
-        for i in range(neff):
-            n_i = edf.number(i)
-            c_i = edf.operator(i)
-
-            direct = components(n_i * ket(state))
-            composite = components(
-                apply_product(c_i.dag, c_i, state=state)
-            )
-
-            assert direct == composite
+    modes = edf.FermionModes(edf.DoF(5))
+    c = edf.set_notation(edf.Annihilation, modes)
+    cd = edf.set_notation(edf.Creation, modes)
+    n = edf.set_notation(edf.Number, modes)
+    for state_int in range(1 << 5):
+        ket = edf.FockState(state_int, n_modes=5)
+        for i in range(5):
+            assert as_map(n(i) * ket) == as_map((cd(i) * c(i)) * ket)
 
 
-def test_operator_class_hierarchy():
-    make_model(neff=4, nf=2)
-
-    c = edf.Annihilation(1)
-    cd = edf.Creation(1)
-    n = edf.Number(1)
-
-    assert isinstance(c, edf.Operator)
-    assert isinstance(cd, edf.Operator)
-    assert isinstance(n, edf.Operator)
-
-    product = cd * c
-    operator_sum = c + cd
-
-    assert isinstance(product, edf.Operator)
-    assert isinstance(operator_sum, edf.Operator)
+def test_unary_negation_is_valid_symbolic_algebra():
+    modes = edf.FermionModes(edf.DoF(2))
+    c = edf.set_notation(edf.Annihilation, modes)
+    ket = edf.FockState(0b01, n_modes=2)
+    result = (-c(0)) * ket
+    assert as_map(result) == {0: -1}
 
 
-def test_legacy_operator_api_aliases():
-    make_model(neff=4, nf=2)
-
-    assert edf.operator is edf.Annihilation
-    assert edf.dagger is edf.Creation
-    assert edf.number is edf.Number
-
-    legacy_c = edf.operator(1)
-    modern_c = edf.Annihilation(1)
-
-    assert type(legacy_c) is type(modern_c)
-    assert legacy_c.site == modern_c.site
-
-    legacy_cd = legacy_c.dag
-    modern_cd = edf.Creation(1)
-
-    assert type(legacy_cd) is type(modern_cd)
-    assert legacy_cd.site == modern_cd.site
+def test_state_sum_scalar_multiplication():
+    state_sum = edf.FockState(1, n_modes=2) + edf.FockState(2, amp=2, n_modes=2)
+    result = 3 * state_sum
+    assert as_map(result) == {1: 3, 2: 6}
 
 
-def test_number_is_not_annihilation_operator():
-    make_model(neff=4, nf=2)
-
-    n = edf.Number(1)
-
-    assert isinstance(n, edf.Operator)
-    assert not isinstance(n, edf.Annihilation)
-
-
-def test_creation_is_not_annihilation_operator():
-    make_model(neff=4, nf=2)
-
-    cd = edf.Creation(1)
-
-    assert isinstance(cd, edf.Operator)
-    assert not isinstance(cd, edf.Annihilation)
+@pytest.mark.parametrize("value", [np.float64(2.0), np.complex128(1 + 2j), 3, 4.5])
+def test_numpy_and_python_numeric_scalars(value):
+    modes = edf.FermionModes(edf.DoF(2))
+    n = edf.set_notation(edf.Number, modes)
+    expression = value * n(0)
+    result = expression * edf.FockState(1, n_modes=2)
+    assert as_map(result) == {1: value}
 
 
-def test_canonical_composite_operator_classes():
-    make_model(neff=4, nf=2)
-
-    c0 = edf.Annihilation(0)
-    c1 = edf.Annihilation(1)
-
-    product = c0.dag * c1
-    operator_sum = c0 + c1
-
-    assert isinstance(product, edf.OperatorProduct)
-    assert isinstance(operator_sum, edf.OperatorSum)
-
-    assert isinstance(product, edf.Operator)
-    assert isinstance(operator_sum, edf.Operator)
-
-
-def test_legacy_composite_operator_aliases():
-    assert edf.operatorproduct is edf.OperatorProduct
-    assert edf.operatorsum is edf.OperatorSum
-
-
-def test_model_build_constructs_fockspace_once(monkeypatch):
-    edf.clear()
-    edf.DoF(4, name="orbital")
-
-    calls = 0
-    original_build = edf.fermionspace.build
-
-    def counted_build(self):
-        nonlocal calls
-        calls += 1
-        return original_build(self)
-
-    monkeypatch.setattr(
-        edf.fermionspace,
-        "build",
-        counted_build,
-    )
-
-    model = edf.model(2)
-
-    assert model.Nbasis == 6
-    assert calls == 1
-
-
-
-def test_fockstate_basis_is_materialized_lazily():
-    model = make_model(neff=6, nf=3)
-
-    assert model.fockspace._basis is None
-    assert model.fockspace.ls == [
-        7, 11, 13, 14, 19, 21, 22, 25, 26, 28,
-        35, 37, 38, 41, 42, 44, 49, 50, 52, 56,
-    ]
-
-    basis = model.fockspace.basis
-
-    assert model.fockspace._basis is basis
-    assert [state.state for state in basis] == model.fockspace.ls
-    assert [state.index for state in basis] == list(range(model.Nbasis))
-
-    # Repeated access must reuse the same materialized basis.
-    assert model.fockspace.basis is basis
+def test_product_adjoint_reverses_order():
+    modes = edf.FermionModes(edf.DoF(3))
+    c = edf.set_notation(edf.Annihilation, modes)
+    cd = edf.set_notation(edf.Creation, modes)
+    expression = cd(0) * c(2)
+    adjoint = expression.dag
+    for state_int in range(8):
+        ket = edf.FockState(state_int, n_modes=3)
+        assert as_map(adjoint * ket) == as_map((cd(2) * c(0)) * ket)
