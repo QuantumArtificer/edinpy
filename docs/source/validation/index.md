@@ -1,10 +1,10 @@
 # Validation and benchmarks
 
-EDinPy separates correctness tests from performance measurements. A fast benchmark is not evidence that an operator algebra is correct, and a passing algebra test does not establish practical scaling.
+Correctness and performance are tested separately. A fast matrix builder is useful only if it reproduces the intended fermionic algebra, while a correct small-system calculation does not by itself establish practical scaling.
 
-The current quantitative validation pages cover the fermionic backend. They test canonical anticommutation relations, fixed-$N$ basis construction, symbolic and compiled operator action, sparse matrix construction, eigensolvers, basis-backed eigenstates, observable algebra, and analytic many-body benchmarks.
+The fermionic validation suite covers canonical anticommutation relations, fixed-$N$ basis construction, symbolic operator action, sparse matrix construction, eigensolvers, basis-backed eigenstates, observables, and analytic small-system results.
 
-The bosonic implementation does not yet have a corresponding validation suite. Fermionic validation results are not assumed to apply to the bosonic algebra or Hilbert-space construction.
+The bosonic module does not yet have the same validation coverage. Fermionic test results should not be assumed to apply to the older bosonic implementation.
 
 ```{toctree}
 :maxdepth: 1

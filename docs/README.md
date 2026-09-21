@@ -1,8 +1,6 @@
 # EDinPy documentation
 
-The documentation source lives in `docs/source` and is built with Sphinx, MyST, and the PyData Sphinx theme. The site is organized from the package level downward: a short package orientation, separate fermionic and bosonic sections, package-level validation and benchmarks, and development notes.
-
-The fermionic section currently contains the complete scientific manual: getting started, workflow-oriented user guide, worked examples, theory/numerical methods, and API reference. The bosonic section is intentionally a top-layer placeholder until the bosonic backend receives the corresponding architectural and documentation overhaul.
+The documentation is built with Sphinx, MyST, and the PyData Sphinx theme. Source files live in `docs/source`. Generated HTML is written to `docs/_build/html` and is not tracked by Git.
 
 Install the documentation dependencies from the repository root:
 
@@ -10,24 +8,22 @@ Install the documentation dependencies from the repository root:
 python -m pip install -e ".[docs]"
 ```
 
-Generate the scientific figures with EDinPy itself:
-
-```bash
-make -C docs figures
-```
-
-The generated SVG files are tracked in `docs/source/_static/figures`. Keeping the generation script with the source makes every plotted data set reproducible.
-
-Build the site with warnings treated as errors:
+Build the documentation with warnings treated as errors:
 
 ```bash
 make -C docs html
 ```
 
-or directly:
+The equivalent direct command is
 
 ```bash
-sphinx-build -W -b html docs/source docs/_build/html
+python -m sphinx -W --keep-going -b html docs/source docs/_build/html
 ```
 
-The generated HTML is written to `docs/_build/html` and is not tracked by Git.
+Scientific figures in `docs/source/_static/figures` are generated with EDinPy and Matplotlib. Regenerate them with
+
+```bash
+make -C docs figures
+```
+
+The documentation is deployed to GitHub Pages from the `main` branch by `.github/workflows/docs.yml`. The repository must use **GitHub Actions** as its Pages publishing source.

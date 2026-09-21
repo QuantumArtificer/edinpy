@@ -34,7 +34,7 @@ print(edinpy.__version__)
 ```
 
 ```text
-0.1.0
+0.2.0
 ```
 
 ## 1. Define the fermionic modes

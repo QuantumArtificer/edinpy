@@ -62,7 +62,7 @@ print(H)
 -1.0 c†[0,0] c[1,0] + -1.0 c†[1,0] c[0,0] + -1.0 c†[0,1] c[1,1] + -1.0 c†[1,1] c[0,1] + -1.0 c†[1,0] c[2,0] + -1.0 c†[2,0] c[1,0] + -1.0 c†[1,1] c[2,1] + -1.0 c†[2,1] c[1,1] + -1.0 c†[2,0] c[3,0] + -1.0 c†[3,0] c[2,0] + -1.0 c†[2,1] c[3,1] + -1.0 c†[3,1] c[2,1] + -1.0 c†[3,0] c[4,0] + -1.0 c†[4,0] c[3,0] + -1.0 c†[3,1] c[4,1] + -1.0 c†[4,1] c[3,1] + -1.0 c†[4,0] c[5,0] + -1.0 c†[5,0] c[4,0] + -1.0 c†[4,1] c[5,1] + -1.0 c†[5,1] c[4,1] + -1.0 c†[5,0] c[0,0] + -1.0 c†[0,0] c[5,0] + -1.0 c†[5,1] c[0,1] + -1.0 c†[0,1] c[5,1] + 4.0 n[0,0] n[0,1] + 4.0 n[1,0] n[1,1] + 4.0 n[2,0] n[2,1] + 4.0 n[3,0] n[3,1] + 4.0 n[4,0] n[4,1] + 4.0 n[5,0] n[5,1] + 2.25 n[0,0] n[1,0] + 2.25 n[0,0] n[1,1] + 2.25 n[0,1] n[1,0] + 2.25 n[0,1] n[1,1] + 2.25 n[1,0] n[2,0] + 2.25 n[1,0] n[2,1] + 2.25 n[1,1] n[2,0] + 2.25 n[1,1] n[2,1] + 2.25 n[2,0] n[3,0] + 2.25 n[2,0] n[3,1] + 2.25 n[2,1] n[3,0] + 2.25 n[2,1] n[3,1] + 2.25 n[3,0] n[4,0] + 2.25 n[3,0] n[4,1] + 2.25 n[3,1] n[4,0] + 2.25 n[3,1] n[4,1] + 2.25 n[4,0] n[5,0] + 2.25 n[4,0] n[5,1] + 2.25 n[4,1] n[5,0] + 2.25 n[4,1] n[5,1] + 2.25 n[5,0] n[0,0] + 2.25 n[5,0] n[0,1] + 2.25 n[5,1] n[0,0] + 2.25 n[5,1] n[0,1]
 ```
 
-The explicit output is useful here because the $Vn_in_{i+1}$ term expands into four spin-resolved number products on every bond. The printed algebra confirms that the nearest-neighbor density interaction was assembled as intended.
+The explicit output is useful here because the $V n_i n_{i+1}$ term expands into four spin-resolved number products on every bond. The printed algebra confirms that the nearest-neighbor density interaction was assembled as intended.
 
 ## Low-energy state at an intermediate coupling
 

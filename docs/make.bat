@@ -1,3 +1,3 @@
 @ECHO OFF
 set SPHINXBUILD=sphinx-build
-%SPHINXBUILD% -W -b html source _build/html
+%SPHINXBUILD% -W --keep-going -b html source _build/html

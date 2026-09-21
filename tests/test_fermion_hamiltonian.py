@@ -102,7 +102,8 @@ def test_k_none_returns_complete_eigensystem():
 def test_eigenvalue_order_matches_requested_spectrum(which):
     modes = edf.FermionModes(edf.DoF(4))
     sector = edf.NParticleSector(modes, 1)
-    H = sum((edf.Onsite(i, value, modes) for i, value in enumerate([-3.0, -1.0, 2.0, 5.0])), start=0)
+    onsite = [-3.0, -1.0, 2.0, 5.0]
+    H = sum((edf.Onsite(i, value, modes) for i, value in enumerate(onsite)), start=0)
     values, _ = edf.Hamiltonian(H, sector).eigsolve(sparse=False, k=2, which=which)
     if which == "SA":
         expected = [-3.0, -1.0]

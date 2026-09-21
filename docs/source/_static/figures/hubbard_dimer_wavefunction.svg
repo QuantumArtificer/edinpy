@@ -9,7 +9,7 @@
     <dc:format>image/svg+xml</dc:format>
     <dc:creator>
      <cc:Agent>
-      <dc:title>Matplotlib v3.10.0, https://matplotlib.org/</dc:title>
+      <dc:title>EDinPy documentation</dc:title>
      </cc:Agent>
     </dc:creator>
    </cc:Work>
@@ -42,7 +42,7 @@ L 141.699942 272.005881
 L 141.699942 272.005881
 L 75.839893 272.005881
 z
-" clip-path="url(#p196cb9e4bd)" style="fill: #1f77b4"/>
+" clip-path="url(#p3554ba7ef3)" style="fill: #1f77b4"/>
    </g>
    <g id="patch_4">
     <path d="M 158.164955 272.005881
@@ -50,7 +50,7 @@ L 224.025004 272.005881
 L 224.025004 231.206525
 L 158.164955 231.206525
 z
-" clip-path="url(#p196cb9e4bd)" style="fill: #1f77b4"/>
+" clip-path="url(#p3554ba7ef3)" style="fill: #1f77b4"/>
    </g>
    <g id="patch_5">
     <path d="M 240.490017 272.005881
@@ -58,7 +58,7 @@ L 306.350066 272.005881
 L 306.350066 34.209804
 L 240.490017 34.209804
 z
-" clip-path="url(#p196cb9e4bd)" style="fill: #1f77b4"/>
+" clip-path="url(#p3554ba7ef3)" style="fill: #1f77b4"/>
    </g>
    <g id="patch_6">
     <path d="M 322.815079 272.005881
@@ -66,7 +66,7 @@ L 388.675128 272.005881
 L 388.675128 34.209804
 L 322.815079 34.209804
 z
-" clip-path="url(#p196cb9e4bd)" style="fill: #1f77b4"/>
+" clip-path="url(#p3554ba7ef3)" style="fill: #1f77b4"/>
    </g>
    <g id="patch_7">
     <path d="M 405.140141 272.005881
@@ -74,7 +74,7 @@ L 471.00019 272.005881
 L 471.00019 231.206525
 L 405.140141 231.206525
 z
-" clip-path="url(#p196cb9e4bd)" style="fill: #1f77b4"/>
+" clip-path="url(#p3554ba7ef3)" style="fill: #1f77b4"/>
    </g>
    <g id="patch_8">
     <path d="M 487.465203 272.005881
@@ -82,7 +82,7 @@ L 553.325252 272.005881
 L 553.325252 272.005881
 L 487.465203 272.005881
 z
-" clip-path="url(#p196cb9e4bd)" style="fill: #1f77b4"/>
+" clip-path="url(#p3554ba7ef3)" style="fill: #1f77b4"/>
    </g>
    <g id="matplotlib.axis_1">
     <g id="xtick_1">
@@ -1112,7 +1112,7 @@ z
   </g>
  </g>
  <defs>
-  <clipPath id="p196cb9e4bd">
+  <clipPath id="p3554ba7ef3">
    <rect x="51.965625" y="22.32" width="525.233895" height="249.685881"/>
   </clipPath>
  </defs>

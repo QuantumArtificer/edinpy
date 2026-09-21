@@ -9,7 +9,7 @@
     <dc:format>image/svg+xml</dc:format>
     <dc:creator>
      <cc:Agent>
-      <dc:title>Matplotlib v3.10.0, https://matplotlib.org/</dc:title>
+      <dc:title>EDinPy documentation</dc:title>
      </cc:Agent>
     </dc:creator>
    </cc:Work>
@@ -764,7 +764,7 @@ L -1.2 -1.2
 z
 " style="stroke: #1f77b4; stroke-linejoin: miter"/>
     </defs>
-    <g clip-path="url(#pe05868d889)">
+    <g clip-path="url(#p137a401619)">
      <use xlink:href="#m75aaeddc37" x="47.139378" y="45.532503" style="fill: #1f77b4; stroke: #1f77b4; stroke-linejoin: miter"/>
      <use xlink:href="#m75aaeddc37" x="47.139378" y="49.890005" style="fill: #1f77b4; stroke: #1f77b4; stroke-linejoin: miter"/>
      <use xlink:href="#m75aaeddc37" x="47.139378" y="62.962511" style="fill: #1f77b4; stroke: #1f77b4; stroke-linejoin: miter"/>
@@ -1304,7 +1304,7 @@ z
   </g>
  </g>
  <defs>
-  <clipPath id="pe05868d889">
+  <clipPath id="p137a401619">
    <rect x="40.603125" y="38.99625" width="305.025145" height="305.025145"/>
   </clipPath>
  </defs>

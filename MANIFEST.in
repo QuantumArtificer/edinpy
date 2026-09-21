@@ -1,10 +1,14 @@
 include LICENSE
 include README.md
+include CONTRIBUTING.md
 include CITATION.cff
 include PROVENANCE.md
 include CHANGELOG.md
-recursive-include docs *.py *.rst *.md *.svg Makefile make.bat
-recursive-include examples *.py
-recursive-include benchmarks *.py
-recursive-exclude * __pycache__
-recursive-exclude * *.py[cod]
+recursive-include tests *.py
+include docs/Makefile
+include docs/make.bat
+include docs/README.md
+recursive-include docs/scripts *.py
+recursive-include docs/source *.py *.rst *.md *.svg
+recursive-include examples *.py *.md
+recursive-include benchmarks *.py *.md

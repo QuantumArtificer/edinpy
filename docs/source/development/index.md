@@ -1,6 +1,6 @@
 # Development
 
-The development pages describe how EDinPy is tested, benchmarked, and extended without obscuring the underlying many-body algebra. The current test and benchmark infrastructure is most mature for the fermionic backend. The bosonic backend is not yet covered by the same validation scope.
+These pages describe the checks used before changes are merged or released.
 
 ```{toctree}
 :maxdepth: 1
@@ -8,4 +8,5 @@ The development pages describe how EDinPy is tested, benchmarked, and extended w
 contributing
 testing
 benchmarking
+releasing
 ```

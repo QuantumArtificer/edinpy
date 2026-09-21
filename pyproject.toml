@@ -1,17 +1,17 @@
 [build-system]
-requires = ["setuptools>=68", "wheel"]
+requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "edinpy"
-version = "0.1.0"
-description = "Exact diagonalization for discrete finite many-body systems"
+version = "0.2.0"
+description = "Exact diagonalization for finite quantum many-body systems"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [
-  {name = "Alex Santacruz"}
+  {name = "Alex Santacruz"},
 ]
 keywords = [
   "exact diagonalization",
@@ -29,6 +29,7 @@ classifiers = [
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
+  "Operating System :: OS Independent",
 ]
 dependencies = [
   "numpy>=1.24",
@@ -36,19 +37,29 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-test = ["pytest>=7"]
+test = [
+  "pytest>=8",
+]
 docs = [
   "sphinx>=7",
   "myst-parser>=2",
   "pydata-sphinx-theme>=0.15",
   "sphinx-copybutton>=0.5",
   "sphinx-design>=0.6",
-  "matplotlib>=3.7",
+  "matplotlib==3.10.8",
+]
+dev = [
+  "build>=1.2",
+  "twine>=5",
+  "ruff>=0.8",
 ]
 
 [project.urls]
+Documentation = "https://quantumartificer.github.io/edinpy/"
 Repository = "https://github.com/QuantumArtificer/edinpy"
 Issues = "https://github.com/QuantumArtificer/edinpy/issues"
+Changelog = "https://github.com/QuantumArtificer/edinpy/blob/main/CHANGELOG.md"
+Contributing = "https://quantumartificer.github.io/edinpy/development/contributing.html"
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -56,3 +67,11 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"
+
+[tool.ruff]
+target-version = "py310"
+line-length = 88
+extend-exclude = ["docs/source/_static"]
+
+[tool.ruff.lint]
+select = ["E9", "F63", "F7", "F82"]

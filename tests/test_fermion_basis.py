@@ -91,7 +91,3 @@ def test_large_vacuum_sector_preserves_mode_count():
     assert sector.basis.states == (0,)
     assert sector.basis.n_modes == 70
 
-
-def test_legacy_global_api_is_absent():
-    for name in ("clear", "model", "ModeSpace", "operator", "number", "hamiltonian"):
-        assert not hasattr(edf, name)

@@ -9,7 +9,7 @@
     <dc:format>image/svg+xml</dc:format>
     <dc:creator>
      <cc:Agent>
-      <dc:title>Matplotlib v3.10.0, https://matplotlib.org/</dc:title>
+      <dc:title>EDinPy documentation</dc:title>
      </cc:Agent>
     </dc:creator>
    </cc:Work>
@@ -955,7 +955,7 @@ L 356.208294 76.275887
 L 380.579288 61.98244
 L 404.950281 47.688993
 L 429.321275 33.395546
-" clip-path="url(#pfccc698cc0)" style="fill: none; stroke: #1f77b4; stroke-width: 1.5; stroke-linecap: square"/>
+" clip-path="url(#pb8a54022b3)" style="fill: none; stroke: #1f77b4; stroke-width: 1.5; stroke-linecap: square"/>
     <defs>
      <path id="m8206804c8c" d="M 0 3
 C 0.795609 3 1.55874 2.683901 2.12132 2.12132
@@ -969,7 +969,7 @@ C -1.55874 2.683901 -0.795609 3 0 3
 z
 " style="stroke: #1f77b4"/>
     </defs>
-    <g clip-path="url(#pfccc698cc0)">
+    <g clip-path="url(#pb8a54022b3)">
      <use xlink:href="#m8206804c8c" x="63.75637" y="247.79725" style="fill: #1f77b4; stroke: #1f77b4"/>
      <use xlink:href="#m8206804c8c" x="88.127364" y="233.503803" style="fill: #1f77b4; stroke: #1f77b4"/>
      <use xlink:href="#m8206804c8c" x="112.498357" y="219.210356" style="fill: #1f77b4; stroke: #1f77b4"/>
@@ -1005,7 +1005,7 @@ L 356.208294 95.499405
 L 380.579288 81.580929
 L 404.950281 67.637025
 L 429.321275 53.670924
-" clip-path="url(#pfccc698cc0)" style="fill: none; stroke: #ff7f0e; stroke-width: 1.5; stroke-linecap: square"/>
+" clip-path="url(#pb8a54022b3)" style="fill: none; stroke: #ff7f0e; stroke-width: 1.5; stroke-linecap: square"/>
     <defs>
      <path id="m4bc8c03e10" d="M 0 3
 C 0.795609 3 1.55874 2.683901 2.12132 2.12132
@@ -1019,7 +1019,7 @@ C -1.55874 2.683901 -0.795609 3 0 3
 z
 " style="stroke: #ff7f0e"/>
     </defs>
-    <g clip-path="url(#pfccc698cc0)">
+    <g clip-path="url(#pb8a54022b3)">
      <use xlink:href="#m4bc8c03e10" x="63.75637" y="254.943974" style="fill: #ff7f0e; stroke: #ff7f0e"/>
      <use xlink:href="#m4bc8c03e10" x="88.127364" y="243.616685" style="fill: #ff7f0e; stroke: #ff7f0e"/>
      <use xlink:href="#m4bc8c03e10" x="112.498357" y="231.203072" style="fill: #ff7f0e; stroke: #ff7f0e"/>
@@ -1391,7 +1391,7 @@ z
   </g>
  </g>
  <defs>
-  <clipPath id="pfccc698cc0">
+  <clipPath id="pb8a54022b3">
    <rect x="45.478125" y="22.318125" width="402.121395" height="243.70327"/>
   </clipPath>
  </defs>

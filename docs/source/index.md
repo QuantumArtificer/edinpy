@@ -2,74 +2,85 @@
 
 Exact diagonalization for finite quantum many-body systems
 
-EDinPy is a Python package for building and solving finite many-body problems directly in Fock space. It contains fermionic and bosonic exact-diagonalization functionality. The Hilbert space, second-quantized operators, Hamiltonian, eigensystem, and observables remain explicit throughout the calculation.
+EDinPy builds finite many-body problems directly in Fock space. The package keeps mode definitions, basis states, second-quantized operators, Hamiltonian matrices, eigenstates, and observables visible in the calculation.
 
-The fermionic interface is the current reference architecture. It provides explicit mode ownership, fixed-particle-number sectors, literal operator-state algebra, optimized sparse Hamiltonian construction, basis-backed eigenstates, and direct evaluation of observables. The bosonic implementation is also included in EDinPy, but its public interface predates the current fermionic API and remains provisional.
+The fermionic interface is designed around literal Fock algebra. A hopping term can be written as
 
-::::{grid} 2
-:::{grid-item-card} Start here
-:link: getting_started
-:link-type: doc
-Install EDinPy, understand the package layout, and choose the fermionic or bosonic workflow appropriate to the problem.
-:::
-:::{grid-item-card} Fermionic exact diagonalization
-:link: fermion/index
-:link-type: doc
-The current reference workflow: literal fermionic Fock algebra, fixed-$N$ sectors, sparse Hamiltonians, eigenstates, observables, examples, theory, and API reference.
-:::
-:::{grid-item-card} Bosonic exact diagonalization
-:link: boson/index
-:link-type: doc
-Bosonic Fock-space functionality is part of EDinPy. Read the current status, scope, and design target of the provisional bosonic interface.
-:::
-:::{grid-item-card} Validation and benchmarks
-:link: validation/index
-:link-type: doc
-Correctness strategy, analytic checks, and performance benchmarks. The present quantitative validation suite focuses on the fermionic backend.
-:::
-:::{grid-item-card} Development
-:link: development/index
-:link-type: doc
-Testing, benchmarking, contribution conventions, and the package-level development philosophy.
-:::
-::::
+```python
+-t * (cd(i, spin) * c(j, spin) + cd(j, spin) * c(i, spin))
+```
 
-## Scope and design
-
-Exact diagonalization is a finite-system method. EDinPy is intended for controlled finite calculations, benchmark problems, and small-cluster studies where the Hilbert space can be represented explicitly. The package does not claim to remove the exponential scaling of exact diagonalization.
-
-The public interface emphasizes readable Fock-space algebra. Recognized operator structures are compiled to sparse execution kernels so that this literal notation does not require a separate slow execution path. Performance still depends on Hilbert-space dimension, sparsity, operator structure, and the numerical environment. Quantitative benchmarks are reported separately in {doc}`validation/index`.
-
-## One package, two particle statistics
-
-Fermionic and bosonic exact diagonalization share the same broad computational workflow:
-
-1. define the one-particle labels or modes
-2. construct a many-body Fock basis or sector
-3. write a Hamiltonian in second quantization
-4. construct its matrix representation
-5. solve the required part of the eigensystem
-6. evaluate observables, correlations, and derived quantities
-
-The two statistics differ in their algebra and Hilbert-space structure. Fermionic modes obey canonical anticommutation relations and have occupations $n_p\in\{0,1\}$. Bosonic modes obey canonical commutation relations and may require an explicit occupation or Hilbert-space truncation in practical finite calculations. Separate public namespaces keep these differences visible.
-
-## Current implementation status
-
-### Fermions
-
-The fermionic API is the reference implementation documented in detail on this site. It is organized around `FermionModes`, `NParticleSector`, literal creation, annihilation, and number operators, `FockVector` eigenstates, sparse Hamiltonian construction, and direct bra-ket expressions such as
+and an expectation value as
 
 ```python
 psi.dag * O * psi
 ```
 
-for expectation values and transition amplitudes.
+When a Hamiltonian matrix is needed, EDinPy recognizes common operator structures and compiles them to sparse execution kernels. The symbolic expression remains the public representation of the model.
 
-### Bosons
+::::{grid} 2
+:::{grid-item-card} Getting started
+:link: getting_started
+:link-type: doc
+Install EDinPy, choose a particle-statistics module, and see the basic exact-diagonalization workflow.
+:::
+:::{grid-item-card} Fermions
+:link: fermion/index
+:link-type: doc
+Modes, fixed-particle-number sectors, operator algebra, sparse Hamiltonians, eigensolvers, observables, examples, and API reference.
+:::
+:::{grid-item-card} Bosons
+:link: boson/index
+:link-type: doc
+Status and scope of the bosonic interface included with EDinPy.
+:::
+:::{grid-item-card} Validation
+:link: validation/index
+:link-type: doc
+Correctness tests, analytic checks, and reproducible performance benchmarks.
+:::
+:::{grid-item-card} Development
+:link: development/index
+:link-type: doc
+Testing, benchmarking, documentation, contribution, and release procedures.
+:::
+:::{grid-item-card} References
+:link: references
+:link-type: doc
+Scientific and numerical references used by the documentation.
+:::
+::::
 
-The bosonic implementation remains available in EDinPy, but its interface still reflects the earlier package architecture. Its current names and global-state conventions are provisional. The bosonic documentation remains high-level until the interface receives the same API, numerical, and validation review as the fermionic backend.
+## What EDinPy is for
 
-The separate `edinpy.fermion` and `edinpy.boson` namespaces keep the two Fock algebras explicit within one package.
+Exact diagonalization solves the represented finite Hilbert space directly, up to the tolerances and floating-point accuracy of the numerical solver. This makes it useful for small-cluster studies, teaching, testing analytical calculations, and benchmarking approximate many-body methods.[^lin]
+
+The main limitation is the size of the Hilbert space. For $M$ fermionic modes at fixed particle number $N$,
+
+$$
+\dim \mathcal H_N = \binom{M}{N}.
+$$
+
+The dimension therefore grows rapidly even before the cost of matrix construction and diagonalization is considered. Sparse matrices and iterative eigensolvers extend the useful range, but they do not change this fundamental scaling.
+
+## Package layout
+
+EDinPy exposes fermionic and bosonic functionality through separate namespaces:
+
+```python
+from edinpy import fermion as edf
+from edinpy import boson as edb
+```
+
+The fermionic API is the primary documented interface in version 0.2.0. It uses explicit mode ownership, fixed-$N$ sectors, sparse Hamiltonian construction, basis-backed eigenstates, and literal operator-state algebra.
+
+The bosonic module uses a separate API and currently has less validation and documentation coverage than the fermionic module. Read {doc}`boson/index` before starting a bosonic calculation.
+
+## Performance
+
+EDinPy uses optimized sparse construction paths for several common number-conserving fermionic structures. These optimizations are intended to reduce the cost of keeping the public API close to the Fock algebra.
+
+Performance depends on the basis dimension, matrix sparsity, operator structure, requested eigenpairs, hardware, and NumPy/SciPy build. The package therefore provides reproducible benchmark scripts instead of a single speed claim. See {doc}`validation/fermion_performance`.
 
 ```{toctree}
 :maxdepth: 2
@@ -80,4 +91,7 @@ fermion/index
 boson/index
 validation/index
 development/index
+references
 ```
+
+[^lin]: H. Q. Lin, J. E. Gubernatis, H. Gould, and J. Tobochnik, "Exact Diagonalization Methods for Quantum Systems," *Computers in Physics* **7**, 400-407 (1993), [doi:10.1063/1.4823192](https://doi.org/10.1063/1.4823192).

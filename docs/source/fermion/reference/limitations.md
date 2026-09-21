@@ -2,7 +2,7 @@
 
 ## Symmetry sectors
 
-Version 0.1.0 constructs fermionic Hamiltonians in a fixed total-particle-number sector. Full Fock-space, fermion-parity, translation, momentum, fixed-spin-population, and other symmetry-reduced sectors are not yet implemented.
+Version 0.2.0 constructs fermionic Hamiltonians in a fixed total-particle-number sector. Full Fock-space, fermion-parity, translation, momentum, fixed-spin-population, and other symmetry-reduced sectors are not yet implemented.
 
 ## Number-changing Hamiltonian terms
 
@@ -18,4 +18,4 @@ The current release supports user-defined zero-temperature observables that can 
 
 ## Bosonic implementation
 
-The existing bosonic module predates the current fermionic architecture and is not covered by the 0.1.0 fermionic user guide. Its public interface is therefore documented separately from the current fermionic API.
+The bosonic module uses an older, separate interface and is not covered by the fermionic user guide. Its status and scope are documented on the bosonic overview page.

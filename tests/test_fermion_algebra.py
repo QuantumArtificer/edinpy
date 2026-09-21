@@ -2,15 +2,14 @@ import numpy as np
 import pytest
 
 from edinpy import fermion as edf
-from edinpy.fermion._basis import NullState, StateSum
 
 
 def as_map(result):
-    if isinstance(result, NullState):
+    if isinstance(result, edf.NullState):
         return {}
     if isinstance(result, edf.FockState):
         return {result.state: result.amp}
-    if isinstance(result, StateSum):
+    if isinstance(result, edf.StateSum):
         out = {}
         for state in result.states:
             out[state.state] = out.get(state.state, 0) + state.amp

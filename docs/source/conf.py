@@ -48,23 +48,31 @@ intersphinx_mapping = {
 }
 
 templates_path = ["_templates"]
+exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
+
 html_theme = "pydata_sphinx_theme"
 html_title = f"EDinPy {release}"
+html_baseurl = "https://quantumartificer.github.io/edinpy/"
 html_static_path = ["_static"]
 html_theme_options = {
     "show_toc_level": 2,
     "navigation_depth": 4,
     "header_links_before_dropdown": 6,
+    "use_edit_page_button": True,
     "icon_links": [
         {
-            "name": "Source",
+            "name": "GitHub",
             "url": "https://github.com/QuantumArtificer/edinpy",
             "icon": "fa-brands fa-github",
         }
     ],
 }
+html_context = {
+    "github_user": "QuantumArtificer",
+    "github_repo": "edinpy",
+    "github_version": "main",
+    "doc_path": "docs/source",
+}
 
 copybutton_prompt_text = r">>> |\.\.\. |\$ "
 copybutton_prompt_is_regexp = True
-
-exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]

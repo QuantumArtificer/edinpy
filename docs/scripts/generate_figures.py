@@ -13,17 +13,14 @@ from __future__ import annotations
 
 from math import comb
 from pathlib import Path
-import sys
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 
+from edinpy import fermion as edf
+
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "src"))
-
-from edinpy import fermion as edf  # noqa: E402
-
 OUT = ROOT / "docs" / "source" / "_static" / "figures"
 OUT.mkdir(parents=True, exist_ok=True)
 
@@ -36,7 +33,13 @@ UP, DOWN = 0, 1
 def save(fig, name: str):
     """Save one documentation figure as a whitespace-clean SVG."""
     path = OUT / name
-    fig.savefig(path, bbox_inches="tight", metadata={"Date": None})
+    fig.savefig(path,
+                bbox_inches="tight",
+                metadata={
+                    "Date": None,
+                    "Creator": "EDinPy documentation",
+                         },
+                )
     plt.close(fig)
     text = path.read_text(encoding="utf-8")
     path.write_text(
@@ -330,8 +333,16 @@ def hubbard_chain_spectrum_observables():
     axes[0, 0].set_ylabel(r"$(E_n-E_0)/t$")
     axes[0, 0].set_title("Lowest eight many-body levels")
 
-    axes[0, 1].plot(U_values, double_occupancy, label=r"$\langle n_{i\uparrow}n_{i\downarrow}\rangle$")
-    axes[0, 1].plot(U_values, local_moment, label=r"$\mu^2=\langle(n_{i\uparrow}-n_{i\downarrow})^2\rangle$")
+    axes[0, 1].plot(
+        U_values,
+        double_occupancy,
+        label=r"$\langle n_{i\uparrow}n_{i\downarrow}\rangle$",
+    )
+    axes[0, 1].plot(
+        U_values,
+        local_moment,
+        label=r"$\mu^2=\langle(n_{i\uparrow}-n_{i\downarrow})^2\rangle$",
+    )
     axes[0, 1].set_xlabel(r"$U/t$")
     axes[0, 1].set_ylabel("site average")
     axes[0, 1].set_title("Local charge and spin diagnostics")

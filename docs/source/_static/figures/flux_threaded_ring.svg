@@ -9,7 +9,7 @@
     <dc:format>image/svg+xml</dc:format>
     <dc:creator>
      <cc:Agent>
-      <dc:title>Matplotlib v3.10.0, https://matplotlib.org/</dc:title>
+      <dc:title>EDinPy documentation</dc:title>
      </cc:Agent>
     </dc:creator>
    </cc:Work>
@@ -590,7 +590,7 @@ L 286.083153 167.713702
 L 296.647382 153.206042
 L 305.702435 140.570697
 L 305.702435 140.570697
-" clip-path="url(#p4cb6f1e30a)" style="fill: none; stroke: #1f77b4; stroke-width: 1.5; stroke-linecap: square"/>
+" clip-path="url(#p97211c2f23)" style="fill: none; stroke: #1f77b4; stroke-width: 1.5; stroke-linecap: square"/>
    </g>
    <g id="line2d_16">
     <path d="M 64.234342 33.070063
@@ -643,7 +643,7 @@ L 301.174909 247.884884
 L 304.19326 248.05061
 L 305.702435 248.071332
 L 305.702435 248.071332
-" clip-path="url(#p4cb6f1e30a)" style="fill: none; stroke: #ff7f0e; stroke-width: 1.5; stroke-linecap: square"/>
+" clip-path="url(#p97211c2f23)" style="fill: none; stroke: #ff7f0e; stroke-width: 1.5; stroke-linecap: square"/>
    </g>
    <g id="line2d_17">
     <path d="M 64.234342 140.570697
@@ -696,7 +696,7 @@ L 286.083153 113.427693
 L 296.647382 127.935353
 L 305.702435 140.570697
 L 305.702435 140.570697
-" clip-path="url(#p4cb6f1e30a)" style="fill: none; stroke: #2ca02c; stroke-width: 1.5; stroke-linecap: square"/>
+" clip-path="url(#p97211c2f23)" style="fill: none; stroke: #2ca02c; stroke-width: 1.5; stroke-linecap: square"/>
    </g>
    <g id="line2d_18">
     <path d="M 64.234342 248.071332
@@ -749,7 +749,7 @@ L 301.174909 33.256511
 L 304.19326 33.090785
 L 305.702435 33.070063
 L 305.702435 33.070063
-" clip-path="url(#p4cb6f1e30a)" style="fill: none; stroke: #d62728; stroke-width: 1.5; stroke-linecap: square"/>
+" clip-path="url(#p97211c2f23)" style="fill: none; stroke: #d62728; stroke-width: 1.5; stroke-linecap: square"/>
    </g>
    <g id="patch_3">
     <path d="M 52.160938 258.821395
@@ -1519,7 +1519,7 @@ L 613.559222 90.481025
 L 618.086749 62.727232
 L 622.614275 33.070063
 L 622.614275 33.070063
-" clip-path="url(#pba403f4175)" style="fill: none; stroke: #1f77b4; stroke-width: 1.5; stroke-linecap: square"/>
+" clip-path="url(#pc4695794e2)" style="fill: none; stroke: #1f77b4; stroke-width: 1.5; stroke-linecap: square"/>
    </g>
    <g id="line2d_30">
     <defs>
@@ -1535,7 +1535,7 @@ C -0.831328 1.431414 -0.424325 1.6 0 1.6
 z
 " style="stroke: #ff7f0e"/>
     </defs>
-    <g clip-path="url(#pba403f4175)">
+    <g clip-path="url(#pc4695794e2)">
      <use xlink:href="#m2d76d4b3a8" x="381.146182" y="33.070063" style="fill: #ff7f0e; stroke: #ff7f0e"/>
      <use xlink:href="#m2d76d4b3a8" x="393.219587" y="107.8783" style="fill: #ff7f0e; stroke: #ff7f0e"/>
      <use xlink:href="#m2d76d4b3a8" x="405.292991" y="168.063554" style="fill: #ff7f0e; stroke: #ff7f0e"/>
@@ -2125,10 +2125,10 @@ L 930.471062 234.690842
 L 934.998589 241.556235
 L 939.526115 248.071332
 L 939.526115 248.071332
-" clip-path="url(#p4ac2005487)" style="fill: none; stroke: #1f77b4; stroke-width: 1.5; stroke-linecap: square"/>
+" clip-path="url(#p1d9f9c4768)" style="fill: none; stroke: #1f77b4; stroke-width: 1.5; stroke-linecap: square"/>
    </g>
    <g id="line2d_44">
-    <g clip-path="url(#p4ac2005487)">
+    <g clip-path="url(#p1d9f9c4768)">
      <use xlink:href="#m2d76d4b3a8" x="698.058022" y="140.570697" style="fill: #ff7f0e; stroke: #ff7f0e"/>
      <use xlink:href="#m2d76d4b3a8" x="710.131427" y="51.210379" style="fill: #ff7f0e; stroke: #ff7f0e"/>
      <use xlink:href="#m2d76d4b3a8" x="722.204831" y="71.551042" style="fill: #ff7f0e; stroke: #ff7f0e"/>
@@ -2155,7 +2155,7 @@ L 939.526115 248.071332
    <g id="line2d_45">
     <path d="M 685.984617 140.570697
 L 951.59952 140.570697
-" clip-path="url(#p4ac2005487)" style="fill: none; stroke: #1f77b4; stroke-width: 0.8; stroke-linecap: square"/>
+" clip-path="url(#p1d9f9c4768)" style="fill: none; stroke: #1f77b4; stroke-width: 0.8; stroke-linecap: square"/>
    </g>
    <g id="patch_14">
     <path d="M 685.984617 258.821395
@@ -2317,13 +2317,13 @@ z
   </g>
  </g>
  <defs>
-  <clipPath id="p4cb6f1e30a">
+  <clipPath id="p97211c2f23">
    <rect x="52.160938" y="22.32" width="265.614903" height="236.501395"/>
   </clipPath>
-  <clipPath id="pba403f4175">
+  <clipPath id="pc4695794e2">
    <rect x="369.072778" y="22.32" width="265.614902" height="236.501395"/>
   </clipPath>
-  <clipPath id="p4ac2005487">
+  <clipPath id="p1d9f9c4768">
    <rect x="685.984617" y="22.32" width="265.614902" height="236.501395"/>
   </clipPath>
  </defs>

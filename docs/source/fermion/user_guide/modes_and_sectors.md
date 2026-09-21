@@ -154,6 +154,6 @@ The same conversion is performed automatically by `Hamiltonian.eigenstate()` aft
 
 ## Choosing a sector
 
-Use the smallest implemented sector that matches the conserved quantities of the Hamiltonian. EDinPy 0.1.0 fixes total particle number only. A spin-conserving Hamiltonian may decompose further into fixed $N_\uparrow$ and $N_\downarrow$ blocks, but those additional symmetry sectors are not yet used to reduce the basis automatically.
+Use the smallest implemented sector that matches the conserved quantities of the Hamiltonian. EDinPy 0.2.0 fixes total particle number only. A spin-conserving Hamiltonian may decompose further into fixed $N_\uparrow$ and $N_\downarrow$ blocks, but those additional symmetry sectors are not yet used to reduce the basis automatically.
 
 That limitation affects performance, not the literal operator algebra: spin-resolved operators and observables are still valid in the larger fixed-$N$ sector.

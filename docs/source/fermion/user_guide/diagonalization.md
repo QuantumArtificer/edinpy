@@ -137,7 +137,7 @@ print(np.count_nonzero(np.isclose(energies, 0.0)))
 3
 ```
 
-For larger systems, resolving additional symmetries into smaller blocks is usually preferable. EDinPy 0.1.0 currently provides only the fixed-total-particle-number sector.
+For larger systems, resolving additional symmetries into smaller blocks is usually preferable. EDinPy 0.2.0 currently provides only the fixed-total-particle-number sector.
 
 ## Hermiticity checks
 

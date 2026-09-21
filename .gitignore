@@ -20,9 +20,17 @@ venv/
 .env
 .idea/
 .vscode/
+.tox/
+.nox/
 
 # Profiling and coverage
 *.prof
 .coverage
 htmlcov/
 coverage.xml
+
+# Local benchmark output
+benchmark-results*.json
+
+# Local virtual environments
+.venv*/

@@ -24,3 +24,4 @@ Fock states and fixed-particle-number sectors
    FockVector
    FockBra
    StateSum
+   NullState

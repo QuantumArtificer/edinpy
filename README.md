@@ -1,29 +1,22 @@
 # EDinPy
 
-EDinPy is a Python package for exact diagonalization of finite quantum many-body systems in Fock space. The package contains both fermionic and bosonic functionality. The fermionic backend is the current reference architecture. The bosonic backend remains available, but its public interface predates the corresponding API, numerical, and documentation work.
+[![CI](https://github.com/QuantumArtificer/edinpy/actions/workflows/ci.yml/badge.svg)](https://github.com/QuantumArtificer/edinpy/actions/workflows/ci.yml)
+[![Docs](https://github.com/QuantumArtificer/edinpy/actions/workflows/docs.yml/badge.svg)](https://quantumartificer.github.io/edinpy/)
+[![PyPI](https://img.shields.io/pypi/v/edinpy.svg)](https://pypi.org/project/edinpy/)
+[![Python](https://img.shields.io/pypi/pyversions/edinpy.svg)](https://pypi.org/project/edinpy/)
+[![License](https://img.shields.io/github/license/QuantumArtificer/edinpy.svg)](LICENSE)
 
-## Current status
+EDinPy is a Python package for exact diagonalization of finite quantum many-body systems in Fock space. Its main goal is to keep the calculation close to the algebra written on paper while still using sparse numerical methods where they are useful.
 
-- **Fermions:** explicit mode ownership, fixed-particle-number sectors, literal second-quantized and bra-ket algebra, sparse Hamiltonian construction, basis-backed eigenstates, observables, validation, and worked documentation.
-- **Bosons:** included in EDinPy. The current bosonic API predates the reference fermionic interface and should be regarded as provisional.
+The fermionic interface lets you define modes, choose a fixed-particle-number sector, write operators directly with creation and annihilation operators, build a sparse Hamiltonian, diagonalize it, and evaluate observables with ordinary bra-ket expressions.
 
-EDinPy uses separate `edinpy.fermion` and `edinpy.boson` namespaces so that the two particle statistics remain explicit.
+EDinPy is well suited to small-system calculations, teaching and exploration, checks of analytical results, and benchmarks for approximate many-body methods. Exact diagonalization still scales exponentially with system size, so EDinPy does not remove the usual Hilbert-space limits of the method.
 
-Exact diagonalization is most useful for finite systems, controlled benchmarks, and small-cluster studies. EDinPy therefore emphasizes a transparent problem definition and reliable finite-system results. The public interface stays close to literal Fock algebra, while recognized operator structures are compiled to sparse execution kernels to reduce matrix-construction overhead.
-
-## Fermionic architecture
-
-The fermionic interface keeps the physical algebra explicit. User expressions such as
-
-```python
--t * (cd(i, s) * c(j, s) + cd(j, s) * c(i, s))
-```
-
-are symbolic Fock-algebra expressions. The compiler recognizes their algebraic structure and lowers supported terms to optimized sparse execution kernels. Common operators such as `Hopping` and `Hubbard` expand to the same literal algebra and therefore use the same compiler paths as handwritten expressions.
-
-EDinPy does not impose symbols for creation, annihilation, or number operators. `set_notation` associates a primitive operator class with a `FermionModes` object. The Python variable name remains the user's notation.
+Documentation: [quantumartificer.github.io/edinpy](https://quantumartificer.github.io/edinpy/)
 
 ## Installation
+
+Install the released package from PyPI:
 
 ```bash
 python -m pip install edinpy
@@ -32,99 +25,114 @@ python -m pip install edinpy
 For development:
 
 ```bash
-python -m pip install -e ".[test,docs]"
+python -m pip install -e ".[test,docs,dev]"
 ```
 
-## Extended Hubbard chain
+EDinPy requires Python 3.10 or newer, NumPy, and SciPy.
 
-The spinful one-dimensional extended Hubbard Hamiltonian
+## A first fermionic calculation
 
-\[
-H=-t\sum_{\langle i,j\rangle,\sigma}
-(c^\dagger_{i\sigma}c_{j\sigma}+\mathrm{H.c.})
-+U\sum_i n_{i\uparrow}n_{i\downarrow}
-+V\sum_{\langle i,j\rangle} n_i n_j
-\]
-
-can be constructed directly:
+The two-site Hubbard model is small enough to inspect directly and already contains the main EDinPy workflow.
 
 ```python
 from edinpy import fermion as edf
 
-L = 8
-N = 8
+L = 2
+UP, DOWN = 0, 1
 t = 1.0
 U = 4.0
-V = 1.5
 
 site = edf.DoF(L, name="site")
 spin = edf.DoF(2, name="spin")
-
 modes = edf.FermionModes(site, spin)
-sector = edf.NParticleSector(modes, N=N)
+sector = edf.NParticleSector(modes, N=2)
 
 c = edf.set_notation(edf.Annihilation, modes)
 cd = edf.set_notation(edf.Creation, modes)
 n = edf.set_notation(edf.Number, modes)
 
-UP, DOWN = 0, 1
 H = 0
-
-for i in range(L - 1):
-    j = i + 1
-    for sigma in (UP, DOWN):
-        H += -t * (
-            cd(i, sigma) * c(j, sigma)
-            + cd(j, sigma) * c(i, sigma)
-        )
+for sigma in (UP, DOWN):
+    hop = cd(0, sigma) * c(1, sigma)
+    H += -t * (hop + hop.dag)
 
 for i in range(L):
     H += U * n(i, UP) * n(i, DOWN)
 
-for i in range(L - 1):
-    j = i + 1
-    n_i = n(i, UP) + n(i, DOWN)
-    n_j = n(j, UP) + n(j, DOWN)
-    H += V * n_i * n_j
-
 hamiltonian = edf.Hamiltonian(H, sector)
-eigenvalues, eigenvectors = hamiltonian.eigsolve(k=4, which="SA")
+energies, _ = hamiltonian.eigsolve(k=None)
+psi0 = hamiltonian.eigenstate(0)
+
+double_occupancy = sum(
+    (n(i, UP) * n(i, DOWN) for i in range(L)),
+    start=0,
+)
+
+print(energies)
+print(psi0.dag * double_occupancy * psi0)
 ```
 
-## Fermionic public API
+The symbolic expression remains readable throughout the calculation. For example,
 
-Core objects:
+```python
+-t * (cd(i, sigma) * c(j, sigma) + cd(j, sigma) * c(i, sigma))
+```
 
-- `DoF`: discrete degree-of-freedom descriptor.
-- `FermionModes`: ordered fermionic modes generated from arbitrary discrete degrees of freedom.
-- `NParticleSector`: fixed-`N` sector of fermionic Fock space.
-- `FockBasis` and `FockState`: occupation-number basis and basis kets.
-- `FockVector` and `FockBra`: basis-backed many-body kets and their Hermitian adjoints.
-- `Annihilation`, `Creation`, `Number`: primitive second-quantized operators.
-- `OperatorSum`, `OperatorProduct`: literal symbolic expressions.
-- `set_notation`: user-selected notation bound to a `FermionModes` object.
-- `Hamiltonian`: sparse matrix construction and Hermitian eigensolution.
+is an ordinary EDinPy operator expression. Common helpers such as `Hopping`, `Hubbard`, and `HeisenbergExchange` produce the same underlying algebra.
 
-Transparent common operators:
+## Design
 
-- `Hopping`
-- `Onsite`
-- `DensityDensity`
-- `Hubbard`
-- `SpinPlus`, `SpinMinus`, `SpinX`, `SpinY`, `SpinZ`
-- `HeisenbergExchange`
-- `PairHopping`
+EDinPy keeps three parts of a fermionic calculation explicit.
 
-## Numerical behavior
+1. **Modes and sectors.** `FermionModes` defines the ordering of single-particle labels. `NParticleSector` defines the fixed-$N$ many-body basis.
+2. **Fock algebra.** `Creation`, `Annihilation`, `Number`, sums, products, and Hermitian conjugation behave as symbolic second-quantized operators.
+3. **Numerical representation.** When a Hamiltonian matrix is requested, recognized operator structures are compiled to sparse execution kernels. This keeps the user-facing notation simple without requiring every term to be interpreted state by state.
 
-Real Hamiltonians are stored in `float64`. Genuinely complex Hamiltonians are stored in `complex128`. Sparse low-energy eigensolution uses SciPy's ARPACK interface. Dense partial Hermitian eigensolution uses `scipy.linalg.eigh` with index subsets when applicable.
+The implementation includes optimized paths for common number-conserving structures, but performance depends strongly on basis dimension, sparsity, operator structure, and the numerical environment. Use the included [benchmark script](benchmarks/README.md) to measure the package on the problem and machine that matter to you.
 
-The current fermionic basis is restricted to a fixed particle number. Number-changing operators can act on individual `FockState` objects, but a Hamiltonian constructed in `NParticleSector` contains only matrix elements within that sector. Full Fock-space, fermion-parity, translation, and momentum sectors are not part of version 0.1.0.
+## Documentation
 
-## Provenance and references
+The documentation is organized around the calculation workflow rather than the source-code layout.
 
-`PROVENANCE.md` records algorithmic sources, literature references, repositories reviewed for comparison, licensing constraints, and public-code similarity checks. External projects inspected during provenance review are not implementation sources unless explicitly identified as such.
+- [Getting started](https://quantumartificer.github.io/edinpy/getting_started.html)
+- [Fermionic tutorial](https://quantumartificer.github.io/edinpy/fermion/getting_started.html)
+- [User guide](https://quantumartificer.github.io/edinpy/fermion/user_guide/index.html)
+- [Worked examples](https://quantumartificer.github.io/edinpy/fermion/examples/index.html)
+- [Theory and numerical methods](https://quantumartificer.github.io/edinpy/fermion/theory/index.html)
+- [API reference](https://quantumartificer.github.io/edinpy/fermion/reference/index.html)
+- [Limitations](https://quantumartificer.github.io/edinpy/fermion/reference/limitations.html)
+- [Validation and benchmarks](https://quantumartificer.github.io/edinpy/validation/index.html)
+
+The repository also contains executable examples in [`examples/`](examples/).
+
+## Fermions and bosons
+
+EDinPy contains separate `edinpy.fermion` and `edinpy.boson` namespaces because the two Fock algebras have different basis rules and operator identities.
+
+The fermionic interface is the primary documented interface in version 0.2.0. The bosonic module uses a separate API and currently has less validation and documentation coverage. See the [bosonic documentation](https://quantumartificer.github.io/edinpy/boson/index.html) before starting a bosonic calculation.
+
+## Testing and development
+
+Run the test suite with
+
+```bash
+python -m pytest
+```
+
+Build the documentation with warnings treated as errors:
+
+```bash
+python -m sphinx -W --keep-going -b html docs/source docs/_build/html
+```
+
+Release and contribution notes are in the [development documentation](https://quantumartificer.github.io/edinpy/development/index.html).
+
+## Citation and provenance
+
+If EDinPy contributes to published work, cite the archived software release used in the calculation. [`CITATION.cff`](CITATION.cff) contains the package citation metadata. [`PROVENANCE.md`](PROVENANCE.md) records algorithmic sources and numerical-library references used by the implementation.
+
+Scientific references used in the documentation are collected on the [references page](https://quantumartificer.github.io/edinpy/references.html).
 
 ## License
 
-EDinPy is distributed under the MIT License.
+EDinPy is distributed under the [MIT License](LICENSE).
