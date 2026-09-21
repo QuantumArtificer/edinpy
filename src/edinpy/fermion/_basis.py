@@ -289,13 +289,17 @@ class FockBasis:
     Notes
     -----
     Basis states are ordered by their integer occupation bit strings. The
-    fixed-population successor is the standard Gosper combination algorithm.
+    fixed-population successor is the standard Gosper combination algorithm
+    [Gosper1972]_. Anderson gives a widely used implementation reference for
+    the same bit-combination construction [Anderson2005]_.
 
     References
     ----------
-    .. [1] R. W. Gosper, in *HAKMEM*, MIT AI Memo 239 (1972), Item 175.
-    .. [2] S. E. Anderson, "Bit Twiddling Hacks: Compute the lexicographically
-       next bit permutation," Stanford University (1997--2005).
+    .. [Gosper1972] R. W. Gosper, in *HAKMEM*, MIT AI Memo 239 (1972),
+       Item 175.
+    .. [Anderson2005] S. E. Anderson, "Bit Twiddling Hacks: Compute the
+       lexicographically next bit permutation," Stanford University
+       (1997--2005).
     """
 
     __slots__ = ("n_modes", "N", "_states")

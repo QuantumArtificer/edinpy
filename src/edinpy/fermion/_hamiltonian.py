@@ -228,18 +228,20 @@ class Hamiltonian:
         Notes
         -----
         ``eigsh`` is an implicitly restarted Lanczos method provided by
-        ARPACK. Small Ritz residuals establish convergence of returned
-        eigenpairs but do not guarantee that a single-vector Lanczos run has
-        recovered every vector in an exactly degenerate eigenspace.
+        ARPACK [Lehoucq1998]_. Small Ritz residuals establish convergence of
+        returned eigenpairs but do not guarantee that a single-vector Lanczos
+        run has recovered every vector in an exactly degenerate eigenspace.
+        The sparse eigensolver is accessed through SciPy [Virtanen2020]_.
 
         References
         ----------
-        .. [1] R. B. Lehoucq, D. C. Sorensen, and C. Yang, *ARPACK Users'
-           Guide: Solution of Large-Scale Eigenvalue Problems with Implicitly
-           Restarted Arnoldi Methods*, SIAM (1998), doi:10.1137/1.9780898719628.
-        .. [2] P. Virtanen et al., "SciPy 1.0: Fundamental Algorithms for
-           Scientific Computing in Python," *Nature Methods* 17, 261--272
-           (2020), doi:10.1038/s41592-019-0686-2.
+        .. [Lehoucq1998] R. B. Lehoucq, D. C. Sorensen, and C. Yang,
+           *ARPACK Users' Guide: Solution of Large-Scale Eigenvalue Problems
+           with Implicitly Restarted Arnoldi Methods*, SIAM (1998),
+           doi:10.1137/1.9780898719628.
+        .. [Virtanen2020] P. Virtanen et al., "SciPy 1.0: Fundamental
+           Algorithms for Scientific Computing in Python," *Nature Methods*
+           17, 261--272 (2020), doi:10.1038/s41592-019-0686-2.
         """
         matrix = self.matrix
         dimension = matrix.shape[0]
