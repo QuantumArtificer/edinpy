@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from numbers import Number as Numeric
 
-from ._basis import FockState, NullState, StateSum
+from ._basis import FockState, FockVector, NullState, StateSum
 from ._modes import FermionModes
 
 
@@ -50,16 +50,41 @@ class Operator:
         return NotImplemented
 
     def __mul__(self, other):
-        """Multiply by an operator, scalar, Fock state, or state sum."""
+        """Multiply by an operator, scalar, or fermionic ket.
+
+        Multiplication by a ket applies the operator expression. For a
+        :class:`~edinpy.fermion.FockVector`, the action is evaluated in literal
+        Fock space from its fixed-sector basis expansion, so number-changing
+        operators are not silently projected back into the original sector.
+        """
         if isinstance(other, FockState):
             return self._action(other)
         if isinstance(other, NullState):
             return other
         if isinstance(other, StateSum):
-            result = NullState()
+            outputs = []
             for state in other.states:
-                result = result + self._action(state)
-            return result
+                _extend_state_terms(outputs, self._action(state))
+            return _state_terms_result(outputs)
+        if isinstance(other, FockVector):
+            modes = operator_modes(self)
+            if modes is not None and modes is not other.sector.modes:
+                raise ValueError(
+                    "Operator and FockVector use different FermionModes objects."
+                )
+            outputs = []
+            basis = other.sector.basis
+            for index, amplitude in enumerate(other.coefficients):
+                if amplitude == 0:
+                    continue
+                state = FockState(
+                    basis.states[index],
+                    amp=amplitude,
+                    n_modes=basis.n_modes,
+                    index=index,
+                )
+                _extend_state_terms(outputs, self._action(state))
+            return _state_terms_result(outputs)
         if isinstance(other, Numeric):
             other = Scalar(other)
         if isinstance(other, Operator):
@@ -407,6 +432,26 @@ class OperatorProduct(Operator):
         return " ".join(factor.string for factor in self._factors)
 
 
+def _extend_state_terms(target, result):
+    """Append a symbolic operator-action result to a flat state-term list."""
+    if isinstance(result, NullState):
+        return
+    if isinstance(result, FockState):
+        target.append(result)
+        return
+    if isinstance(result, StateSum):
+        target.extend(result.states)
+        return
+    raise TypeError(f"Unsupported operator-action result {type(result).__name__}.")
+
+
+def _state_terms_result(states):
+    """Return the canonical symbolic state result for a list of Fock terms."""
+    if not states:
+        return NullState()
+    return StateSum(states).simplified()
+
+
 def _multiply_expressions(left, right):
     """Multiply expressions, distributing products over symbolic sums."""
     if isinstance(left, OperatorSum):
@@ -515,7 +560,7 @@ def set_notation(operator_type, modes):
     -------
     callable
         Callable accepting degree-of-freedom indices. The Python variable to
-        which the callable is assigned determines the user's notation; EDinPy
+        which the callable is assigned determines the user's notation. EDinPy
         does not impose symbols such as ``c``, ``d``, or ``f``.
 
     Examples

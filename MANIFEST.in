@@ -3,7 +3,7 @@ include README.md
 include CITATION.cff
 include PROVENANCE.md
 include CHANGELOG.md
-recursive-include docs *.py *.rst Makefile make.bat
+recursive-include docs *.py *.rst *.md *.svg Makefile make.bat
 recursive-include examples *.py
 recursive-include benchmarks *.py
 recursive-exclude * __pycache__

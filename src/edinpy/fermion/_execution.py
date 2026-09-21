@@ -41,9 +41,9 @@ def _group_hopping_kernels(kernels):
 
     Notes
     -----
-    Grouping is performed by a hash key containing the two mode bits and the
-    parity mask. It therefore scales linearly with the number of hopping terms
-    rather than comparing all pairs of terms.
+    Grouping uses a hash key containing the two mode bits and the parity mask.
+    The work therefore scales linearly with the number of hopping terms and
+    does not require pairwise term comparisons.
     """
     groups = {}
 
@@ -211,8 +211,8 @@ class CompiledOperator:
     ):
         """Emit sparse-matrix entries directly for a fully lowered operator.
 
-        Duplicate matrix entries are intentionally allowed here. The sparse
-        assembly stage combines them with sum_duplicates().
+        Duplicate matrix entries are allowed here. The sparse assembly stage
+        combines them with ``sum_duplicates()``.
         """
         if not self.fully_lowered:
             raise RuntimeError(

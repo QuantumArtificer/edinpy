@@ -1,8 +1,17 @@
 # EDinPy
 
-EDinPy is a Python package for exact diagonalization of discrete finite many-body systems. The fermionic API is organized around explicit fermionic modes, fixed-particle-number sectors, literal second-quantized operator algebra, structural compilation, sparse Hamiltonian construction, and Hermitian eigensolution.
+EDinPy is a Python package for exact diagonalization of finite quantum many-body systems in Fock space. The package contains both fermionic and bosonic functionality. The fermionic backend is the current reference architecture. The bosonic backend remains available, but its public interface predates the corresponding API, numerical, and documentation work.
 
-## Design
+## Current status
+
+- **Fermions:** explicit mode ownership, fixed-particle-number sectors, literal second-quantized and bra-ket algebra, sparse Hamiltonian construction, basis-backed eigenstates, observables, validation, and worked documentation.
+- **Bosons:** included in EDinPy. The current bosonic API predates the reference fermionic interface and should be regarded as provisional.
+
+EDinPy uses separate `edinpy.fermion` and `edinpy.boson` namespaces so that the two particle statistics remain explicit.
+
+Exact diagonalization is most useful for finite systems, controlled benchmarks, and small-cluster studies. EDinPy therefore emphasizes a transparent problem definition and reliable finite-system results. The public interface stays close to literal Fock algebra, while recognized operator structures are compiled to sparse execution kernels to reduce matrix-construction overhead.
+
+## Fermionic architecture
 
 The fermionic interface keeps the physical algebra explicit. User expressions such as
 
@@ -12,7 +21,7 @@ The fermionic interface keeps the physical algebra explicit. User expressions su
 
 are symbolic Fock-algebra expressions. The compiler recognizes their algebraic structure and lowers supported terms to optimized sparse execution kernels. Common operators such as `Hopping` and `Hubbard` expand to the same literal algebra and therefore use the same compiler paths as handwritten expressions.
 
-EDinPy does not impose symbols for creation, annihilation, or number operators. `set_notation` associates a primitive operator class with a `FermionModes` object; the Python variable name remains the user's notation.
+EDinPy does not impose symbols for creation, annihilation, or number operators. `set_notation` associates a primitive operator class with a `FermionModes` object. The Python variable name remains the user's notation.
 
 ## Installation
 
@@ -89,7 +98,8 @@ Core objects:
 - `DoF`: discrete degree-of-freedom descriptor.
 - `FermionModes`: ordered fermionic modes generated from arbitrary discrete degrees of freedom.
 - `NParticleSector`: fixed-`N` sector of fermionic Fock space.
-- `FockBasis` and `FockState`: occupation-number basis and states.
+- `FockBasis` and `FockState`: occupation-number basis and basis kets.
+- `FockVector` and `FockBra`: basis-backed many-body kets and their Hermitian adjoints.
 - `Annihilation`, `Creation`, `Number`: primitive second-quantized operators.
 - `OperatorSum`, `OperatorProduct`: literal symbolic expressions.
 - `set_notation`: user-selected notation bound to a `FermionModes` object.
@@ -107,7 +117,7 @@ Transparent common operators:
 
 ## Numerical behavior
 
-Real Hamiltonians are stored in `float64`; genuinely complex Hamiltonians are stored in `complex128`. Sparse low-energy eigensolution uses SciPy's ARPACK interface. Dense partial Hermitian eigensolution uses `scipy.linalg.eigh` with index subsets when applicable.
+Real Hamiltonians are stored in `float64`. Genuinely complex Hamiltonians are stored in `complex128`. Sparse low-energy eigensolution uses SciPy's ARPACK interface. Dense partial Hermitian eigensolution uses `scipy.linalg.eigh` with index subsets when applicable.
 
 The current fermionic basis is restricted to a fixed particle number. Number-changing operators can act on individual `FockState` objects, but a Hamiltonian constructed in `NParticleSector` contains only matrix elements within that sector. Full Fock-space, fermion-parity, translation, and momentum sectors are not part of version 0.1.0.
 

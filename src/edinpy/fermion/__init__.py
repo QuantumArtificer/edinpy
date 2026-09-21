@@ -9,7 +9,7 @@ from ._algebra import (
     OperatorSum,
     set_notation,
 )
-from ._basis import FockBasis, FockState, NParticleSector, StateSum
+from ._basis import FockBasis, FockBra, FockState, FockVector, NParticleSector, StateSum
 from ._hamiltonian import Hamiltonian
 from ._modes import DoF, FermionModes
 from ._operators import (
@@ -32,6 +32,8 @@ __all__ = [
     "NParticleSector",
     "FockBasis",
     "FockState",
+    "FockVector",
+    "FockBra",
     "StateSum",
     "Operator",
     "Annihilation",
