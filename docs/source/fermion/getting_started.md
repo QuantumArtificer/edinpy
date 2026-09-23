@@ -74,7 +74,7 @@ This ordering fixes the occupation-bit convention and therefore the signs of fer
 At half filling the dimer contains two fermions:
 
 ```python
-sector = edf.NParticleSector(modes, N=2)
+sector = edf.NParticleSector(modes, N=2).build()
 print("dimension:", sector.dimension)
 print("basis bit strings:", sector.basis.states)
 ```

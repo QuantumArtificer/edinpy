@@ -10,7 +10,8 @@ from scipy.sparse import csc_matrix
 from scipy.sparse.linalg import eigsh
 
 from ._algebra import Operator, operator_modes
-from ._basis import FockState, NParticleSector
+from ._basis import FockState
+from ._sectors import NParticleSector
 from ._execution import compile_operator
 
 
@@ -46,6 +47,11 @@ class Hamiltonian:
             raise TypeError("'operator' must be a fermionic Operator expression.")
         if not isinstance(sector, NParticleSector):
             raise TypeError("'sector' must be an NParticleSector instance.")
+        if not sector.is_built:
+            raise RuntimeError(
+                "The NParticleSector has not been built. Call sector.build() "
+                "before constructing a Hamiltonian."
+            )
 
         modes = operator_modes(operator)
         if modes is not None and modes is not sector.modes:

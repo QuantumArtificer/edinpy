@@ -65,7 +65,7 @@ def spinful_chain(
     site = edf.DoF(L, name="site")
     spin = edf.DoF(2, name="spin")
     modes = edf.FermionModes(site, spin)
-    sector = edf.NParticleSector(modes, N=N)
+    sector = edf.NParticleSector(modes, N=N).build()
     c = edf.set_notation(edf.Annihilation, modes)
     cd = edf.set_notation(edf.Creation, modes)
     n = edf.set_notation(edf.Number, modes)
@@ -535,7 +535,7 @@ def spin_exchange_spectrum():
     site = edf.DoF(2, name="site")
     spin = edf.DoF(2, name="spin")
     modes = edf.FermionModes(site, spin)
-    sector = edf.NParticleSector(modes, N=2)
+    sector = edf.NParticleSector(modes, N=2).build()
     Sdot = edf.HeisenbergExchange(
         (0, UP), (0, DOWN), (1, UP), (1, DOWN), 1.0, modes
     )
@@ -586,7 +586,7 @@ def flux_threaded_ring():
 
     site = edf.DoF(L, name="site")
     modes = edf.FermionModes(site)
-    sector = edf.NParticleSector(modes, N=N)
+    sector = edf.NParticleSector(modes, N=N).build()
     c = edf.set_notation(edf.Annihilation, modes)
     cd = edf.set_notation(edf.Creation, modes)
 

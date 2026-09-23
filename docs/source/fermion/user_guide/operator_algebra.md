@@ -110,7 +110,7 @@ where the order $q<p$ is the `FermionModes` order described in {doc}`modes_and_s
 The same one-dimensional mode set can be used to build a small fixed-$N$ problem:
 
 ```python
-sector = edf.NParticleSector(modes, N=2)
+sector = edf.NParticleSector(modes, N=2).build()
 H = n(0) + 2 * n(1) + 3 * n(2) + 4 * n(3)
 
 hamiltonian = edf.Hamiltonian(H, sector)

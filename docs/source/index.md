@@ -72,13 +72,13 @@ from edinpy import fermion as edf
 from edinpy import boson as edb
 ```
 
-The fermionic API is the primary documented interface in version 0.2.0. It uses explicit mode ownership, fixed-$N$ sectors, sparse Hamiltonian construction, basis-backed eigenstates, and literal operator-state algebra.
+The fermionic API is the primary documented interface. It uses explicit mode ownership, fixed-$N$ sectors, optional particle-number projections on labeled degrees of freedom, sparse Hamiltonian construction, basis-backed eigenstates, and literal operator-state algebra.
 
 The bosonic module uses a separate API and currently has less validation and documentation coverage than the fermionic module. Read {doc}`boson/index` before starting a bosonic calculation.
 
 ## Performance
 
-EDinPy uses optimized sparse construction paths for several common number-conserving fermionic structures. These optimizations are intended to reduce the cost of keeping the public API close to the Fock algebra.
+EDinPy uses direct constrained-basis generation for particle-resolved sectors and optimized sparse construction paths for several common number-conserving fermionic structures. These optimizations reduce avoidable basis and matrix-construction work while keeping the public API close to the Fock algebra.
 
 Performance depends on the basis dimension, matrix sparsity, operator structure, requested eigenpairs, hardware, and NumPy/SciPy build. The package therefore provides reproducible benchmark scripts instead of a single speed claim. See {doc}`validation/fermion_performance`.
 

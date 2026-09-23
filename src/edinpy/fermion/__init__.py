@@ -14,10 +14,10 @@ from ._basis import (
     FockBra,
     FockState,
     FockVector,
-    NParticleSector,
     NullState,
     StateSum,
 )
+from ._sectors import NParticleSector
 from ._hamiltonian import Hamiltonian
 from ._modes import DoF, FermionModes
 from ._operators import (

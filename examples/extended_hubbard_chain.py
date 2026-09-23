@@ -14,7 +14,7 @@ V = 2.25
 site = edf.DoF(L, name="site")
 spin = edf.DoF(2, name="spin")
 modes = edf.FermionModes(site, spin)
-sector = edf.NParticleSector(modes, N=N)
+sector = edf.NParticleSector(modes, N=N).build()
 
 c = edf.set_notation(edf.Annihilation, modes)
 cd = edf.set_notation(edf.Creation, modes)

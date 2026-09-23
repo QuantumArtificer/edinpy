@@ -38,7 +38,7 @@ phase = np.exp(1j * theta)
 
 site = edf.DoF(L, name="site")
 modes = edf.FermionModes(site)
-sector = edf.NParticleSector(modes, N=N)
+sector = edf.NParticleSector(modes, N=N).build()
 c = edf.set_notation(edf.Annihilation, modes)
 cd = edf.set_notation(edf.Creation, modes)
 

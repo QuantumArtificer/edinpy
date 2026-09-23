@@ -17,6 +17,16 @@ python benchmarks/profile_operator_families.py
 
 The script reports basis dimension, matrix nonzero count, basis construction time, compilation time, and repeated matrix-construction timings. Use `--json` to preserve the complete samples and software environment.
 
+## Constrained basis generation
+
+`NParticleSector.project_particles()` can reduce the basis before Hamiltonian construction when the Hamiltonian preserves additional particle populations. The builder does not form the complete fixed-$N$ sector and then discard states. It generates the requested constrained sector directly.
+
+The implementation selects a generation path from the requested projections. One projected degree of freedom is handled as independent fixed-population mode groups. Two projected degrees of freedom are handled through their joint occupation table. Three or more projected degrees of freedom use the joint intersections of all constrained labels with bounded recursive enumeration.
+
+For mode counts above 64, constrained basis construction uses a multiword `uint64` representation internally. The final public Fock states remain ordinary Python integers. This avoids a hard 64-mode limit without requiring the rest of the fermionic API to use a different state representation.
+
+The speedup from a projection depends on how much it reduces the basis and on the structure of the requested populations. Basis dimension is therefore a more useful first diagnostic than a machine-specific timing. Matrix construction and diagonalization should still be benchmarked separately.
+
 ## What the benchmark does not claim
 
 There is no single meaningful "EDinPy speed" or maximum system size. Exact-diagonalization cost depends on the basis dimension, the number and structure of Hamiltonian terms, matrix sparsity, the requested part of the spectrum, available memory, processor, and numerical-library build.

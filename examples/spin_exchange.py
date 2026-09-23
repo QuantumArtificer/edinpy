@@ -12,7 +12,7 @@ J = 1.0
 site = edf.DoF(L, name="site")
 spin = edf.DoF(2, name="spin")
 modes = edf.FermionModes(site, spin)
-sector = edf.NParticleSector(modes, N=N)
+sector = edf.NParticleSector(modes, N=N).build()
 
 Sdot = edf.HeisenbergExchange(
     (0, UP), (0, DOWN),

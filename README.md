@@ -8,7 +8,7 @@
 
 EDinPy is a Python package for exact diagonalization of finite quantum many-body systems in Fock space. Its main goal is to keep the calculation close to the algebra written on paper while still using sparse numerical methods where they are useful.
 
-The fermionic interface lets you define modes, choose a fixed-particle-number sector, write operators directly with creation and annihilation operators, build a sparse Hamiltonian, diagonalize it, and evaluate observables with ordinary bra-ket expressions.
+The fermionic interface lets you define modes, choose a fixed-particle-number sector, optionally resolve conserved particle populations by labeled degrees of freedom, write operators directly with creation and annihilation operators, build a sparse Hamiltonian, diagonalize it, and evaluate observables with ordinary bra-ket expressions.
 
 EDinPy is well suited to small-system calculations, teaching and exploration, checks of analytical results, and benchmarks for approximate many-body methods. Exact diagonalization still scales exponentially with system size, so EDinPy does not remove the usual Hilbert-space limits of the method.
 
@@ -43,9 +43,9 @@ t = 1.0
 U = 4.0
 
 site = edf.DoF(L, name="site")
-spin = edf.DoF(2, name="spin")
+spin = edf.DoF(2, name="spin", labels=("up", "down"))
 modes = edf.FermionModes(site, spin)
-sector = edf.NParticleSector(modes, N=2)
+sector = edf.NParticleSector(modes, N=2).build()
 
 c = edf.set_notation(edf.Annihilation, modes)
 cd = edf.set_notation(edf.Creation, modes)
@@ -84,11 +84,28 @@ is an ordinary EDinPy operator expression. Common helpers such as `Hopping`, `Hu
 
 EDinPy keeps three parts of a fermionic calculation explicit.
 
-1. **Modes and sectors.** `FermionModes` defines the ordering of single-particle labels. `NParticleSector` defines the fixed-$N$ many-body basis.
+1. **Modes and sectors.** `FermionModes` defines the ordering of single-particle labels. `NParticleSector` defines a fixed-$N$ many-body sector and can resolve separately conserved particle populations before the basis is built.
 2. **Fock algebra.** `Creation`, `Annihilation`, `Number`, sums, products, and Hermitian conjugation behave as symbolic second-quantized operators.
 3. **Numerical representation.** When a Hamiltonian matrix is requested, recognized operator structures are compiled to sparse execution kernels. This keeps the user-facing notation simple without requiring every term to be interpreted state by state.
 
 The implementation includes optimized paths for common number-conserving structures, but performance depends strongly on basis dimension, sparsity, operator structure, and the numerical environment. Use the included [benchmark script](benchmarks/README.md) to measure the package on the problem and machine that matter to you.
+
+## Particle-resolved sectors
+
+When particle number is conserved separately for labels of a degree of freedom, specify those populations before building the basis:
+
+```python
+spin = edf.DoF(2, name="spin", labels=("up", "down"))
+modes = edf.FermionModes(site, spin)
+
+sector = (
+    edf.NParticleSector(modes, N=4)
+    .project_particles("spin", up=2, down=2)
+    .build()
+)
+```
+
+Several labeled degrees of freedom can be resolved in the same sector. Their constraints are solved jointly and the requested basis is generated directly rather than by constructing the complete fixed-$N$ basis and filtering it. See the [modes and sectors guide](https://quantumartificer.github.io/edinpy/fermion/user_guide/modes_and_sectors.html) for examples with spin, layer, and orbital labels.
 
 ## Documentation
 

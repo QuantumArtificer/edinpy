@@ -10,7 +10,7 @@ from edinpy import fermion as edf
 site = edf.DoF(2, name="site")
 spin = edf.DoF(2, name="spin")
 modes = edf.FermionModes(site, spin)
-sector = edf.NParticleSector(modes, N=2)
+sector = edf.NParticleSector(modes, N=2).build()
 
 c = edf.set_notation(edf.Annihilation, modes)
 cd = edf.set_notation(edf.Creation, modes)

@@ -18,25 +18,48 @@ class DoF:
     name : str, optional
         Descriptive name, such as ``"site"``, ``"spin"``, ``"orbital"``,
         ``"layer"``, or ``"valley"``.
+    labels : iterable of str, optional
+        Names for the individual values of the degree of freedom. Labels are
+        useful when constructing particle-number projections. Their order is
+        the same as the integer indices ``0, 1, ..., size - 1``.
 
     Notes
     -----
     ``DoF`` is only a discrete label specification. It does not represent a
-    quantum state or a Hilbert space by itself.
+    quantum state or a Hilbert space by itself. Integer indices remain the
+    canonical mode coordinates even when descriptive labels are supplied.
     """
 
     size: int
     name: str | None = None
+    labels: tuple[str, ...] | None = None
 
     def __post_init__(self):
-        """Validate the degree-of-freedom cardinality and optional name."""
+        """Validate the degree-of-freedom cardinality, name, and labels."""
         if not isinstance(self.size, Integral):
             raise TypeError("'size' must be an integer.")
         if self.size <= 0:
             raise ValueError("'size' must be positive.")
         if self.name is not None and not isinstance(self.name, str):
             raise TypeError("'name' must be a string or None.")
-        object.__setattr__(self, "size", int(self.size))
+
+        size = int(self.size)
+        object.__setattr__(self, "size", size)
+
+        if self.labels is None:
+            return
+
+        try:
+            labels = tuple(self.labels)
+        except TypeError as exc:
+            raise TypeError("'labels' must be an iterable of strings or None.") from exc
+        if len(labels) != size:
+            raise ValueError("'labels' must contain exactly 'size' entries.")
+        if not all(isinstance(label, str) and label for label in labels):
+            raise TypeError("All DoF labels must be non-empty strings.")
+        if len(set(labels)) != len(labels):
+            raise ValueError("DoF labels must be unique.")
+        object.__setattr__(self, "labels", labels)
 
 
 class FermionModes:

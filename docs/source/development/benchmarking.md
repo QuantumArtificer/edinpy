@@ -24,3 +24,11 @@ For a meaningful regression comparison, keep the following fixed:
 The benchmark is intended to detect regressions and compare implementation changes on a controlled setup. It is not a hardware-independent estimate of the largest system EDinPy can solve.
 
 See {doc}`../validation/fermion_performance` for the performance scope of the released package.
+
+## Sector-generation benchmarks
+
+When changing `NParticleSector`, benchmark basis generation separately from Hamiltonian construction. Compare sectors with the same mode definition and requested populations, and report both the final basis dimension and construction time. A smaller constrained basis should not be compared with a larger unconstrained basis without stating both dimensions.
+
+For changes near the 64-mode boundary, include cases on both sides of the boundary. The constrained-sector backend uses one or more 64-bit words internally, so these checks are useful for detecting representation-specific regressions.
+
+Correctness comes before timing. For small mode spaces, compare the directly generated constrained basis with the subset obtained by filtering the complete fixed-$N$ basis.

@@ -6,7 +6,7 @@ from edinpy import fermion as edf
 
 def make_spinful_chain(L, N):
     modes = edf.FermionModes(edf.DoF(L, "site"), edf.DoF(2, "spin"))
-    sector = edf.NParticleSector(modes, N=N)
+    sector = edf.NParticleSector(modes, N=N).build()
     c = edf.set_notation(edf.Annihilation, modes)
     cd = edf.set_notation(edf.Creation, modes)
     n = edf.set_notation(edf.Number, modes)
@@ -54,7 +54,7 @@ def test_extended_hubbard_chain_is_real_float64():
 
 def test_genuinely_complex_hopping_uses_complex128():
     modes = edf.FermionModes(edf.DoF(4))
-    sector = edf.NParticleSector(modes, 2)
+    sector = edf.NParticleSector(modes, 2).build()
     H = edf.Hopping(0, 1, 1j, modes) + edf.Hopping(2, 3, 0.3 + 0.7j, modes)
     ham = edf.Hamiltonian(H, sector)
     assert ham.matrix.dtype == np.complex128
@@ -63,14 +63,14 @@ def test_genuinely_complex_hopping_uses_complex128():
 
 def test_complex_typed_zero_imaginary_coefficient_remains_real():
     modes = edf.FermionModes(edf.DoF(3))
-    sector = edf.NParticleSector(modes, 1)
+    sector = edf.NParticleSector(modes, 1).build()
     H = edf.Onsite(0, np.complex128(2 + 0j), modes)
     assert edf.Hamiltonian(H, sector).matrix.dtype == np.float64
 
 
 def test_nonhermitian_hamiltonian_is_rejected_by_eigsolve():
     modes = edf.FermionModes(edf.DoF(3))
-    sector = edf.NParticleSector(modes, 1)
+    sector = edf.NParticleSector(modes, 1).build()
     c = edf.set_notation(edf.Annihilation, modes)
     cd = edf.set_notation(edf.Creation, modes)
     ham = edf.Hamiltonian(cd(0) * c(1), sector)
@@ -81,7 +81,7 @@ def test_nonhermitian_hamiltonian_is_rejected_by_eigsolve():
 
 def test_dense_and_sparse_eigenpairs_agree():
     modes = edf.FermionModes(edf.DoF(8))
-    sector = edf.NParticleSector(modes, 4)
+    sector = edf.NParticleSector(modes, 4).build()
     H = sum((edf.Hopping(i, i + 1, -1.0, modes) for i in range(7)), start=0)
     ham = edf.Hamiltonian(H, sector)
     sparse_vals, _ = ham.eigsolve(sparse=True, k=4, which="SA", tol=1e-12)
@@ -91,7 +91,7 @@ def test_dense_and_sparse_eigenpairs_agree():
 
 def test_k_none_returns_complete_eigensystem():
     modes = edf.FermionModes(edf.DoF(5))
-    sector = edf.NParticleSector(modes, 2)
+    sector = edf.NParticleSector(modes, 2).build()
     H = sum((edf.Onsite(i, i + 1.0, modes) for i in range(5)), start=0)
     values, vectors = edf.Hamiltonian(H, sector).eigsolve(sparse=False, k=None)
     assert values.shape == (sector.dimension,)
@@ -101,7 +101,7 @@ def test_k_none_returns_complete_eigensystem():
 @pytest.mark.parametrize("which", ["SA", "LA", "SM", "LM"])
 def test_eigenvalue_order_matches_requested_spectrum(which):
     modes = edf.FermionModes(edf.DoF(4))
-    sector = edf.NParticleSector(modes, 1)
+    sector = edf.NParticleSector(modes, 1).build()
     onsite = [-3.0, -1.0, 2.0, 5.0]
     H = sum((edf.Onsite(i, value, modes) for i, value in enumerate(onsite)), start=0)
     values, _ = edf.Hamiltonian(H, sector).eigsolve(sparse=False, k=2, which=which)
@@ -121,7 +121,7 @@ def test_random_number_conserving_hamiltonian_against_independent_reference():
     n_modes = 6
     N = 3
     modes = edf.FermionModes(edf.DoF(n_modes))
-    sector = edf.NParticleSector(modes, N)
+    sector = edf.NParticleSector(modes, N).build()
     c = edf.set_notation(edf.Annihilation, modes)
     cd = edf.set_notation(edf.Creation, modes)
     n = edf.set_notation(edf.Number, modes)
@@ -163,7 +163,7 @@ def test_random_number_conserving_hamiltonian_against_independent_reference():
 
 def test_vacuum_sector_above_64_modes_does_not_enter_uint64_backend():
     modes = edf.FermionModes(edf.DoF(70))
-    sector = edf.NParticleSector(modes, 0)
+    sector = edf.NParticleSector(modes, 0).build()
     H = edf.Onsite(69, 3.0, modes)
     matrix = edf.Hamiltonian(H, sector).matrix
     assert matrix.shape == (1, 1)
@@ -174,6 +174,89 @@ def test_vacuum_sector_above_64_modes_does_not_enter_uint64_backend():
 def test_operator_and_sector_mode_mismatch_is_rejected():
     modes_a = edf.FermionModes(edf.DoF(4))
     modes_b = edf.FermionModes(edf.DoF(4))
-    sector = edf.NParticleSector(modes_b, 2)
+    sector = edf.NParticleSector(modes_b, 2).build()
     with pytest.raises(ValueError):
         edf.Hamiltonian(edf.Onsite(0, 1.0, modes_a), sector)
+
+
+def test_hamiltonian_requires_built_sector():
+    modes = edf.FermionModes(edf.DoF(2))
+    sector = edf.NParticleSector(modes, 1)
+    c = edf.set_notation(edf.Annihilation, modes)
+
+    with pytest.raises(RuntimeError, match="sector.build"):
+        edf.Hamiltonian(c(0).dag * c(0), sector)
+
+
+def test_projected_sector_hamiltonian_matches_full_sector_submatrix():
+    L = 3
+    site = edf.DoF(L, name="site")
+    spin = edf.DoF(2, name="spin", labels=("up", "down"))
+    modes = edf.FermionModes(site, spin)
+    c = edf.set_notation(edf.Annihilation, modes)
+    cd = edf.set_notation(edf.Creation, modes)
+    n = edf.set_notation(edf.Number, modes)
+
+    H = 0
+    for i in range(L - 1):
+        for sigma in (0, 1):
+            H += -(cd(i, sigma) * c(i + 1, sigma) + cd(i + 1, sigma) * c(i, sigma))
+    for i in range(L):
+        H += 2.0 * n(i, 0) * n(i, 1)
+
+    full_sector = edf.NParticleSector(modes, N=3).build()
+    projected_sector = (
+        edf.NParticleSector(modes, N=3)
+        .project_particles("spin", up=2, down=1)
+        .build()
+    )
+
+    full_matrix = edf.Hamiltonian(H, full_sector).toarray()
+    projected_matrix = edf.Hamiltonian(H, projected_sector).toarray()
+    full_lookup = {state: index for index, state in enumerate(full_sector.basis.states)}
+    selected = [full_lookup[state] for state in projected_sector.basis.states]
+    expected = full_matrix[np.ix_(selected, selected)]
+
+    assert projected_sector.dimension == 9
+    assert np.allclose(projected_matrix, expected)
+
+
+def test_two_dof_projected_hamiltonian_matches_full_sector_submatrix():
+    L = 2
+    site = edf.DoF(L, name="site")
+    spin = edf.DoF(2, name="spin", labels=("up", "down"))
+    layer = edf.DoF(2, name="layer", labels=("top", "bottom"))
+    modes = edf.FermionModes(site, spin, layer)
+    c = edf.set_notation(edf.Annihilation, modes)
+    cd = edf.set_notation(edf.Creation, modes)
+    n = edf.set_notation(edf.Number, modes)
+
+    H = 0
+    for layer_index in (0, 1):
+        for spin_index in (0, 1):
+            H += -(
+                cd(0, spin_index, layer_index) * c(1, spin_index, layer_index)
+                + cd(1, spin_index, layer_index) * c(0, spin_index, layer_index)
+            )
+    for site_index in range(L):
+        for layer_index in (0, 1):
+            H += 1.5 * n(site_index, 0, layer_index) * n(
+                site_index, 1, layer_index
+            )
+
+    full_sector = edf.NParticleSector(modes, N=4).build()
+    projected_sector = (
+        edf.NParticleSector(modes, N=4)
+        .project_particles("spin", up=2, down=2)
+        .project_particles("layer", top=2, bottom=2)
+        .build()
+    )
+
+    full_matrix = edf.Hamiltonian(H, full_sector).toarray()
+    projected_matrix = edf.Hamiltonian(H, projected_sector).toarray()
+    full_lookup = {state: index for index, state in enumerate(full_sector.basis.states)}
+    selected = [full_lookup[state] for state in projected_sector.basis.states]
+    expected = full_matrix[np.ix_(selected, selected)]
+
+    assert projected_sector.dimension == 18
+    assert np.allclose(projected_matrix, expected)

@@ -65,7 +65,7 @@ def benchmark_family(length, particles, family, repeat, warmup):
     modes = edf.FermionModes(edf.DoF(length, name="mode"))
 
     start = time.perf_counter()
-    sector = edf.NParticleSector(modes, N=particles)
+    sector = edf.NParticleSector(modes, N=particles).build()
     basis_seconds = time.perf_counter() - start
 
     start = time.perf_counter()

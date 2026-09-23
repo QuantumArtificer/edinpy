@@ -3,7 +3,7 @@
 The fermionic interface is organized around four explicit objects:
 
 - `FermionModes` defines the ordered single-particle modes
-- `NParticleSector` defines the fixed-$N$ many-body basis
+- `NParticleSector` specifies and builds the fixed-$N$ many-body basis, including optional particle-number projections on labeled degrees of freedom
 - operator expressions represent the second-quantized algebra
 - `Hamiltonian` connects an operator expression to a numerical matrix and eigensolver
 
@@ -63,9 +63,11 @@ Before matrix construction, the expression is compiled. Recognized number-conser
 
 This split keeps implementation details out of the model definition. It also means that readable operator expressions can use optimized matrix-construction paths when their structure is recognized.
 
-## Fixed-particle-number scope
+## Particle-number sectors
 
-Version 0.2.0 builds fermionic Hamiltonians in one fixed total-particle-number sector at a time. Full Fock-space, parity, momentum, translation, and fixed-spin-population sectors are not yet part of the public API. See {doc}`reference/limitations` for the current numerical and feature limits.
+Fermionic Hamiltonians are built in one fixed total-particle-number sector at a time. If additional particle populations are separately conserved, `NParticleSector.project_particles()` can resolve them using labels already defined on the mode degrees of freedom. Several projected degrees of freedom can be combined before `build()` is called.
+
+Momentum, translation, reflection, parity, and non-Abelian symmetry sectors are not yet part of the public API. See {doc}`reference/limitations` for the current numerical and feature limits.
 
 ```{toctree}
 :maxdepth: 2

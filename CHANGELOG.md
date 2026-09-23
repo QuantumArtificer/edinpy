@@ -4,6 +4,17 @@ All notable changes to EDinPy are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- Lazy `NParticleSector` construction with an explicit `build()` step.
+- `NParticleSector.project_particles()` for resolving conserved particle populations on one or more labeled degrees of freedom before basis generation.
+- Direct one-, two-, and multi-degree-of-freedom constrained basis generators.
+
+### Changed
+
+- Constrained sectors are generated directly instead of constructing the complete fixed-$N$ basis and filtering it.
+- Constrained basis generation above 64 modes uses a multiword `uint64` backend while preserving Python-integer Fock states in the public API.
+
 ## [0.2.0] - 2026-09-21
 
 ### Added

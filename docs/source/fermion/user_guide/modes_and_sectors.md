@@ -10,18 +10,18 @@ The occupation-number basis is only unambiguous after the fermionic modes have b
 from edinpy import fermion as edf
 
 site = edf.DoF(3, name="site")
-spin = edf.DoF(2, name="spin")
+spin = edf.DoF(2, name="spin", labels=("up", "down"))
 
 print(site)
 print(spin)
 ```
 
 ```text
-DoF(size=3, name='site')
-DoF(size=2, name='spin')
+DoF(size=3, name='site', labels=None)
+DoF(size=2, name='spin', labels=('up', 'down'))
 ```
 
-A `DoF` is not a wavefunction and is not a Hilbert space. It only specifies the allowed integer labels.
+A `DoF` is not a wavefunction and is not a Hilbert space. Integer indices remain the canonical mode coordinates. Optional `labels` give those values readable names that can also be used when defining particle-number projections.
 
 ## Constructing the ordered mode set
 
@@ -80,9 +80,13 @@ $$
 For the six modes above and three particles:
 
 ```python
-sector = edf.NParticleSector(modes, N=3)
+sector = edf.NParticleSector(modes, N=3).build()
 print("dimension:", sector.dimension)
 ```
+
+`NParticleSector(...)` records the sector specification. The explicit `build()`
+step generates the many-body basis. Separating specification from generation
+allows additional sector restrictions to be supplied before basis enumeration.
 
 ```text
 dimension: 20
@@ -104,6 +108,77 @@ for i in range(5):
 ```
 
 `FockState` prints the conventional binary representation with the most significant bit on the left. Mode 0 is therefore the rightmost bit. Internally the state is stored as the corresponding non-negative Python integer.
+
+## Resolving particle number by degree of freedom
+
+If the Hamiltonian conserves particle number separately for values of a degree of freedom, those populations can be fixed before the basis is generated. For example, a spin-conserving calculation can fix $N_\uparrow$ and $N_\downarrow$ directly:
+
+```python
+sector = (
+    edf.NParticleSector(modes, N=3)
+    .project_particles("spin", up=2, down=1)
+    .build()
+)
+
+print("dimension:", sector.dimension)
+```
+
+```text
+dimension: 9
+```
+
+The projection is part of the sector specification. `build()` generates only states with the requested populations. For three sites, the dimension is therefore
+
+$$
+\binom{3}{2}\binom{3}{1}=9,
+$$
+
+rather than $\binom{6}{3}=20$. The complete fixed-$N$ basis is not generated and filtered.
+
+The projection syntax uses labels already attached to the `DoF`. EDinPy does not assign physical meaning to names such as `spin`, `layer`, or `orbital`. A projection may also leave labels unspecified. If an orbital degree of freedom has labels `("a", "b", "c")` and only `a=2` is supplied, the remaining particles are free to occupy `b` and `c`.
+
+Two degrees of freedom can be resolved at the same time. Their projections are solved jointly because the corresponding mode groups overlap. For example:
+
+```python
+site = edf.DoF(4, name="site")
+spin = edf.DoF(2, name="spin", labels=("up", "down"))
+layer = edf.DoF(2, name="layer", labels=("top", "bottom"))
+modes = edf.FermionModes(site, spin, layer)
+
+sector = (
+    edf.NParticleSector(modes, N=4)
+    .project_particles("spin", up=2, down=2)
+    .project_particles("layer", top=2, bottom=2)
+    .build()
+)
+
+print("dimension:", sector.dimension)
+```
+
+```text
+dimension: 328
+```
+
+The builder partitions the modes into the intersections `(up, top)`, `(up, bottom)`, `(down, top)`, and `(down, bottom)`. It first finds the allowed particle counts in these four groups, then generates only the Fock states associated with those counts. The spin projection is therefore not generated first and filtered by the layer projection afterward.
+
+Three or more degrees of freedom can be projected in the same sector. For example, an additional orbital population can be imposed before the basis is built:
+
+```python
+orbital = edf.DoF(2, name="orbital", labels=("a", "b"))
+modes = edf.FermionModes(site, spin, layer, orbital)
+
+sector = (
+    edf.NParticleSector(modes, N=4)
+    .project_particles("spin", up=2, down=2)
+    .project_particles("layer", top=2, bottom=2)
+    .project_particles("orbital", a=2, b=2)
+    .build()
+)
+```
+
+For one projected degree of freedom, EDinPy uses a direct product of fixed-population mode groups. For two projected degrees of freedom, it uses a bounded row-and-column occupation solver. For three or more, it forms the joint intersections of all projected labels and solves the remaining bounded occupation constraints recursively. These are separate generation paths selected by `build()`; the public projection syntax is unchanged.
+
+In every case, the requested sector is generated directly. EDinPy does not construct the complete fixed-$N$ basis and then apply the projections as filters.
 
 ## Why fixed-$N$ sectors help
 
@@ -154,6 +229,4 @@ The same conversion is performed automatically by `Hamiltonian.eigenstate()` aft
 
 ## Choosing a sector
 
-Use the smallest implemented sector that matches the conserved quantities of the Hamiltonian. EDinPy 0.2.0 fixes total particle number only. A spin-conserving Hamiltonian may decompose further into fixed $N_\uparrow$ and $N_\downarrow$ blocks, but those additional symmetry sectors are not yet used to reduce the basis automatically.
-
-That limitation affects performance, not the literal operator algebra: spin-resolved operators and observables are still valid in the larger fixed-$N$ sector.
+Use a projected sector only when the Hamiltonian preserves the corresponding particle populations. Fixing $N_\uparrow$ and $N_\downarrow$, for example, is appropriate when those two numbers are separately conserved. The projection reduces the basis used for matrix construction and diagonalization; it does not change the literal operator algebra.

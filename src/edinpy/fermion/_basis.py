@@ -1,4 +1,4 @@
-"""Occupation-number states and fixed-particle-number fermionic sectors."""
+"""Occupation-number states and bases for fermionic Fock space."""
 
 from __future__ import annotations
 
@@ -8,7 +8,6 @@ from numbers import Integral, Number
 
 import numpy as np
 
-from ._modes import FermionModes
 
 
 class FockState:
@@ -453,6 +452,15 @@ class FockBasis:
 
         return tuple(states)
 
+    @classmethod
+    def _from_sorted_states(cls, n_modes, N, states):
+        """Construct a basis from trusted, sorted states generated internally."""
+        basis = cls.__new__(cls)
+        basis.n_modes = int(n_modes)
+        basis.N = int(N)
+        basis._states = tuple(int(state) for state in states)
+        return basis
+
     def __len__(self):
         """Return the Hilbert-space dimension of the basis."""
         return len(self._states)
@@ -535,53 +543,6 @@ class FockBasis:
         return FockState(state, n_modes=self.n_modes, index=index)
 
 
-class NParticleSector:
-    """Fixed-particle-number sector of fermionic Fock space.
-
-    Parameters
-    ----------
-    modes : FermionModes
-        Fermionic modes defining the occupation-number representation.
-    N : int
-        Number of fermions in the sector.
-    """
-
-    __slots__ = ("modes", "N", "basis")
-
-    def __init__(self, modes, N):
-        """Construct a fixed-particle-number sector and its Fock basis."""
-        if not isinstance(modes, FermionModes):
-            raise TypeError("'modes' must be a FermionModes instance.")
-        if not isinstance(N, Integral):
-            raise TypeError("'N' must be an integer.")
-        N = int(N)
-        if N < 0 or N > modes.n_modes:
-            raise ValueError("'N' must satisfy 0 <= N <= modes.n_modes.")
-
-        self.modes = modes
-        self.N = N
-        self.basis = FockBasis(modes.n_modes, N)
-
-    @property
-    def dimension(self):
-        """int: Hilbert-space dimension of the fixed-particle-number sector."""
-        return self.basis.dimension
-
-    def from_vector(self, coefficients):
-        """Construct a basis-backed Fock vector from coefficient coordinates.
-
-        Parameters
-        ----------
-        coefficients : array_like
-            One-dimensional coefficient array in ``self.basis`` ordering.
-
-        Returns
-        -------
-        FockVector
-            Ket represented in the fixed-``N`` Fock basis of this sector.
-        """
-        return FockVector(coefficients, self)
-
 
 class FockVector:
     r"""Ket represented by coefficients in an :class:`NParticleSector` basis.
@@ -609,8 +570,15 @@ class FockVector:
 
     def __init__(self, coefficients, sector):
         """Validate and store coefficients in the sector's Fock-basis order."""
+        from ._sectors import NParticleSector
+
         if not isinstance(sector, NParticleSector):
             raise TypeError("'sector' must be an NParticleSector instance.")
+        if not sector.is_built:
+            raise RuntimeError(
+                "The NParticleSector has not been built. Call sector.build() "
+                "before constructing a FockVector."
+            )
         array = np.asarray(coefficients)
         if array.ndim != 1:
             raise ValueError("'coefficients' must be one-dimensional.")

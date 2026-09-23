@@ -11,7 +11,7 @@ def matrices_equal(left, right, sector):
 
 def test_hopping_matches_literal_algebra():
     modes = edf.FermionModes(edf.DoF(4))
-    sector = edf.NParticleSector(modes, 2)
+    sector = edf.NParticleSector(modes, 2).build()
     c = edf.set_notation(edf.Annihilation, modes)
     cd = edf.set_notation(edf.Creation, modes)
     t = -0.7 + 0.2j
@@ -21,14 +21,14 @@ def test_hopping_matches_literal_algebra():
 
 def test_onsite_matches_literal_algebra():
     modes = edf.FermionModes(edf.DoF(4))
-    sector = edf.NParticleSector(modes, 2)
+    sector = edf.NParticleSector(modes, 2).build()
     n = edf.set_notation(edf.Number, modes)
     assert matrices_equal(edf.Onsite(2, 1.7, modes), 1.7 * n(2), sector)
 
 
 def test_density_density_and_hubbard_match_literal_algebra():
     modes = edf.FermionModes(edf.DoF(2, "site"), edf.DoF(2, "spin"))
-    sector = edf.NParticleSector(modes, 2)
+    sector = edf.NParticleSector(modes, 2).build()
     n = edf.set_notation(edf.Number, modes)
     literal = 3.2 * n(0, 0) * n(0, 1)
     assert matrices_equal(edf.Hubbard((0, 0), (0, 1), 3.2, modes), literal, sector)
@@ -37,7 +37,7 @@ def test_density_density_and_hubbard_match_literal_algebra():
 
 def test_spin_operators_match_standard_fermionic_definitions():
     modes = edf.FermionModes(edf.DoF(1, "site"), edf.DoF(2, "spin"))
-    sector = edf.NParticleSector(modes, 1)
+    sector = edf.NParticleSector(modes, 1).build()
     c = edf.set_notation(edf.Annihilation, modes)
     cd = edf.set_notation(edf.Creation, modes)
     n = edf.set_notation(edf.Number, modes)
@@ -49,7 +49,7 @@ def test_spin_operators_match_standard_fermionic_definitions():
 
 def test_heisenberg_exchange_matches_spin_definition():
     modes = edf.FermionModes(edf.DoF(2, "site"), edf.DoF(2, "spin"))
-    sector = edf.NParticleSector(modes, 2)
+    sector = edf.NParticleSector(modes, 2).build()
     i_up, i_down = (0, 0), (0, 1)
     j_up, j_down = (1, 0), (1, 1)
     J = 0.8
@@ -66,7 +66,7 @@ def test_heisenberg_exchange_matches_spin_definition():
 
 def test_pair_hopping_matches_literal_algebra():
     modes = edf.FermionModes(edf.DoF(2, "site"), edf.DoF(2, "spin"))
-    sector = edf.NParticleSector(modes, 2)
+    sector = edf.NParticleSector(modes, 2).build()
     c = edf.set_notation(edf.Annihilation, modes)
     cd = edf.set_notation(edf.Creation, modes)
     i_up, i_down = (0, 0), (0, 1)

@@ -2,7 +2,7 @@
 
 ## Symmetry sectors
 
-Version 0.2.0 constructs fermionic Hamiltonians in a fixed total-particle-number sector. Full Fock-space, fermion-parity, translation, momentum, fixed-spin-population, and other symmetry-reduced sectors are not yet implemented.
+Fermionic Hamiltonians are constructed in a fixed total-particle-number sector. Separately conserved particle populations can also be fixed for labeled degrees of freedom with `NParticleSector.project_particles()`. Full Fock-space, fermion-parity, translation, momentum, reflection, and non-Abelian symmetry sectors are not yet implemented.
 
 ## Number-changing Hamiltonian terms
 

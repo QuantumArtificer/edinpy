@@ -9,6 +9,27 @@ def test_dof_is_pure_descriptor():
     site = edf.DoF(5, name="site")
     assert site.size == 5
     assert site.name == "site"
+    assert site.labels is None
+
+
+def test_dof_accepts_ordered_labels():
+    spin = edf.DoF(2, name="spin", labels=("up", "down"))
+
+    assert spin.size == 2
+    assert spin.labels == ("up", "down")
+
+
+@pytest.mark.parametrize(
+    "labels, error",
+    [
+        (("up",), ValueError),
+        (("up", "up"), ValueError),
+        (("up", 1), TypeError),
+    ],
+)
+def test_dof_rejects_invalid_labels(labels, error):
+    with pytest.raises(error):
+        edf.DoF(2, name="spin", labels=labels)
 
 
 @pytest.mark.parametrize("size", [0, -1])
@@ -64,30 +85,3 @@ def test_fock_basis_contains_states():
 def test_fock_state_keeps_local_mode_count():
     state = edf.FockState(1, n_modes=7)
     assert "0000001" in str(state)
-
-
-def test_n_particle_sector_owns_its_basis():
-    modes = edf.FermionModes(edf.DoF(6))
-    sector = edf.NParticleSector(modes, N=3)
-    assert sector.dimension == 20
-    assert sector.basis.n_modes == 6
-    assert sector.basis.N == 3
-
-
-def test_independent_sectors_do_not_share_state():
-    modes_a = edf.FermionModes(edf.DoF(5))
-    modes_b = edf.FermionModes(edf.DoF(7))
-    sector_a = edf.NParticleSector(modes_a, 2)
-    sector_b = edf.NParticleSector(modes_b, 3)
-    assert sector_a.dimension == 10
-    assert sector_b.dimension == 35
-    assert sector_a.basis.n_modes == 5
-    assert sector_b.basis.n_modes == 7
-
-
-def test_large_vacuum_sector_preserves_mode_count():
-    modes = edf.FermionModes(edf.DoF(70))
-    sector = edf.NParticleSector(modes, 0)
-    assert sector.basis.states == (0,)
-    assert sector.basis.n_modes == 70
-

@@ -46,7 +46,7 @@ L = 4
 site = edf.DoF(L, name="site")
 spin = edf.DoF(2, name="spin")
 modes = edf.FermionModes(site, spin)
-sector = edf.NParticleSector(modes, N=L)
+sector = edf.NParticleSector(modes, N=L).build()
 c = edf.set_notation(edf.Annihilation, modes)
 cd = edf.set_notation(edf.Creation, modes)
 n = edf.set_notation(edf.Number, modes)
@@ -72,6 +72,15 @@ sparse nnz: 294
 ```
 
 The storage reduction can be dramatic, but Lanczos vectors still have length $D$. Eventually the vectors, not the Hamiltonian entries, become the limiting object.
+
+The same estimate should be repeated after applying any separately conserved particle populations. For a spin-$1/2$ system with $L$ sites and fixed $N_\uparrow$ and $N_\downarrow$,
+
+$$
+D=\binom{L}{N_\uparrow}\binom{L}{N_\downarrow}.
+$$
+
+With several projected degrees of freedom there is generally no single product formula because their mode groups overlap. `sector.dimension` gives the dimension of the jointly constrained basis after `build()`.
+
 
 ## Matrix construction and eigensolution are separate costs
 
@@ -99,9 +108,11 @@ The timings are examples, not performance guarantees. They depend on the process
 
 ## Vectorized and large-mode paths
 
-For mode counts up to 64, selected execution kernels use NumPy `uint64` vectorization. Larger mode spaces remain valid because the symbolic Fock representation uses Python integers when necessary, but the same vectorized paths are not available.
+For mode counts up to 64, selected Hamiltonian execution kernels use NumPy `uint64` vectorization. Larger mode spaces remain valid because the public Fock representation uses arbitrary-precision Python integers when necessary.
 
-A large number of modes does not necessarily imply a large fixed-$N$ sector. For example, a dilute few-particle problem can have many modes and a manageable basis. EDinPy therefore does not impose a 64-mode hard limit.
+Constrained sector construction uses a separate multiword backend above 64 modes. Occupation masks are assembled as arrays of 64-bit words and converted to the ordinary integer Fock representation only after the requested basis has been generated and sorted. This keeps particle-projected basis construction vectorized across the 64-mode boundary without changing the public state representation.
+
+A large number of modes does not necessarily imply a large fixed-$N$ sector. For example, a dilute few-particle problem can have many modes and a manageable basis. EDinPy therefore does not impose a 64-mode hard limit. Some Hamiltonian execution kernels still use different implementations above 64 modes, so basis-construction and matrix-construction timings should be considered separately.
 
 ## Precision
 
@@ -150,7 +161,7 @@ For a published calculation, record at least:
 - EDinPy version and commit or archived release
 - Python, NumPy, and SciPy versions
 - mode ordering and all discrete degrees of freedom
-- particle-number sector and Hilbert-space dimension
+- total particle number, any particle-number projections, and Hilbert-space dimension
 - boundary conditions and Hamiltonian parameters
 - whether the Hamiltonian is real or complex
 - sparse/dense eigensolver choice and `k`, `which`, `tol`, `ncv`, and `maxiter` where relevant
