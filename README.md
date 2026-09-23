@@ -2,8 +2,7 @@
 
 [![CI](https://github.com/QuantumArtificer/edinpy/actions/workflows/ci.yml/badge.svg)](https://github.com/QuantumArtificer/edinpy/actions/workflows/ci.yml)
 [![Docs](https://github.com/QuantumArtificer/edinpy/actions/workflows/docs.yml/badge.svg)](https://quantumartificer.github.io/edinpy/)
-[![PyPI](https://img.shields.io/pypi/v/edinpy.svg)](https://pypi.org/project/edinpy/)
-[![Python](https://img.shields.io/pypi/pyversions/edinpy.svg)](https://pypi.org/project/edinpy/)
+[![Python](https://img.shields.io/badge/python-%3E%3D3.10-blue.svg)](https://www.python.org/)
 [![License](https://img.shields.io/github/license/QuantumArtificer/edinpy.svg)](LICENSE)
 
 EDinPy is a Python package for exact diagonalization of finite quantum many-body systems in Fock space. Its main goal is to keep the calculation close to the algebra written on paper while still using sparse numerical methods where they are useful.
@@ -16,13 +15,15 @@ Documentation: [quantumartificer.github.io/edinpy](https://quantumartificer.gith
 
 ## Installation
 
-Install the released package from PyPI:
+EDinPy is currently installed from source:
 
 ```bash
-python -m pip install edinpy
+git clone https://github.com/QuantumArtificer/edinpy.git
+cd edinpy
+python -m pip install -e .
 ```
 
-For development:
+For development, install the test, documentation, and release tools as well:
 
 ```bash
 python -m pip install -e ".[test,docs,dev]"
@@ -126,7 +127,7 @@ The repository also contains executable examples in [`examples/`](examples/).
 
 EDinPy contains separate `edinpy.fermion` and `edinpy.boson` namespaces because the two Fock algebras have different basis rules and operator identities.
 
-The fermionic interface is the primary documented interface in version 0.2.0. The bosonic module uses a separate API and currently has less validation and documentation coverage. See the [bosonic documentation](https://quantumartificer.github.io/edinpy/boson/index.html) before starting a bosonic calculation.
+The fermionic interface is the primary documented interface. The bosonic module uses a separate API and currently has less validation and documentation coverage. See the [bosonic documentation](https://quantumartificer.github.io/edinpy/boson/index.html) before starting a bosonic calculation.
 
 ## Testing and development
 

@@ -2,7 +2,7 @@
 
 EDinPy includes a bosonic exact-diagonalization module under `edinpy.boson`. It uses a separate public API from `edinpy.fermion` and currently has less validation, documentation, and performance coverage.
 
-## Status in version 0.2.0
+## Current status
 
 The bosonic code can construct finite occupation bases and bosonic Hamiltonians, but it still uses global model state and older naming conventions. It has not yet received the same API review, validation suite, examples, or performance work as `edinpy.fermion`.
 

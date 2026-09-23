@@ -14,16 +14,12 @@ Here $c_{i\sigma}^\dagger$ and $c_{i\sigma}$ create and annihilate a fermion wit
 
 ## Installation
 
-Install a release from PyPI with
+Install EDinPy from a source checkout:
 
 ```bash
-python -m pip install edinpy
-```
-
-or install a development checkout with the test and documentation dependencies:
-
-```bash
-python -m pip install -e ".[test,docs]"
+git clone https://github.com/QuantumArtificer/edinpy.git
+cd edinpy
+python -m pip install -e .
 ```
 
 Verify the import:
@@ -34,7 +30,7 @@ print(edinpy.__version__)
 ```
 
 ```text
-0.2.0
+0.3.0.dev0
 ```
 
 ## 1. Define the fermionic modes

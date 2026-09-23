@@ -13,7 +13,7 @@ $$
 \mathcal F=\bigoplus_{N=0}^{M}\mathcal H_N,
 $$
 
-where $\mathcal H_N$ contains states with exactly $N$ occupied modes. EDinPy 0.2.0 constructs `NParticleSector`, i.e. one $\mathcal H_N$ at a time.
+where $\mathcal H_N$ contains states with exactly $N$ occupied modes. `NParticleSector` constructs one $\mathcal H_N$ at a time and can further restrict it by fixing particle populations associated with selected discrete degrees of freedom before basis generation.
 
 The dimension of this sector is
 

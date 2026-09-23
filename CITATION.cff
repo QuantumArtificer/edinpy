@@ -5,7 +5,7 @@ type: software
 authors:
   - family-names: Santacruz
     given-names: Alex
-version: 0.2.0
+version: 0.3.0.dev0
 license: MIT
 repository-code: https://github.com/QuantumArtificer/edinpy
 url: https://quantumartificer.github.io/edinpy/

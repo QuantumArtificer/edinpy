@@ -13,16 +13,12 @@ EDinPy keeps each of these steps explicit.
 
 ## Installation
 
-Install a release from PyPI:
+Install EDinPy from a source checkout:
 
 ```bash
-python -m pip install edinpy
-```
-
-For a development checkout:
-
-```bash
-python -m pip install -e ".[test,docs,dev]"
+git clone https://github.com/QuantumArtificer/edinpy.git
+cd edinpy
+python -m pip install -e .
 ```
 
 Verify the installation:
@@ -47,7 +43,7 @@ The local names `edf` and `edb` are ordinary Python aliases. You may choose any 
 :::{grid-item-card} Fermions
 :link: fermion/getting_started
 :link-type: doc
-Use the documented fixed-particle-number interface for lattice fermions, spinful fermion models, multiorbital problems, and related finite systems.
+Use the documented particle-number-resolved interface for lattice fermions, spinful fermion models, multiorbital problems, and related finite systems.
 :::
 :::{grid-item-card} Bosons
 :link: boson/index

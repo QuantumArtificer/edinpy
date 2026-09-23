@@ -137,7 +137,7 @@ print(np.count_nonzero(np.isclose(energies, 0.0)))
 3
 ```
 
-For larger systems, resolving additional symmetries into smaller blocks is usually preferable. EDinPy 0.2.0 currently provides only the fixed-total-particle-number sector.
+For larger systems, reducing the basis before matrix construction is usually preferable. `NParticleSector.project_particles()` can fix particle populations associated with one or more discrete degrees of freedom before the basis is generated. Momentum and point-group symmetry sectors are not yet implemented.
 
 ## Hermiticity checks
 

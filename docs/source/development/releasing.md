@@ -55,7 +55,7 @@ This step catches packaging errors that an editable install can hide.
 
 ## 5. Tag and publish
 
-Commit the release state on `main`, create an annotated version tag such as `v0.2.0`, and create a GitHub release from that tag.
+Commit the release state on `main`, create an annotated version tag such as `vX.Y.Z`, and create a GitHub release from that tag.
 
 Upload the exact files from `dist/` to PyPI. PyPI Trusted Publishing is preferred over long-lived API tokens when the repository has been configured for it.
 
