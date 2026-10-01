@@ -59,13 +59,15 @@ The release workflow:
    agree;
 2. runs the test suite, optional Numba tests, Ruff, examples, and
    documentation build;
-3. regenerates documentation figures and verifies that generation leaves the
-   checkout unchanged;
-4. builds the wheel and source distribution;
-5. validates the distributions with Twine and smoke-tests the built wheel;
-6. publishes the verified distributions to PyPI using Trusted Publishing;
-7. creates the GitHub Release and attaches the exact wheel, source
+3. builds the wheel and source distribution;
+4. validates the distributions with Twine and smoke-tests the built wheel;
+5. publishes the verified distributions to PyPI using Trusted Publishing;
+6. creates the GitHub Release and attaches the exact wheel, source
    distribution, and `SHA256SUMS`.
+
+Documentation figures are generated and reviewed during development. The
+release workflow builds the committed documentation but does not require
+byte-for-byte SVG regeneration on a different runner environment.
 
 Do not create the GitHub Release before the workflow runs. Do not upload
 release assets or invoke `twine upload` manually.

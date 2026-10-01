@@ -74,12 +74,6 @@ jobs:
       - name: Run Ruff
         run: python -m ruff check src tests examples benchmarks docs/scripts
 
-      - name: Regenerate documentation figures
-        run: python docs/scripts/generate_figures.py
-
-      - name: Verify generated figures are reproducible
-        run: git diff --exit-code
-
       - name: Run examples
         run: |
           for example in examples/fermion/*.py examples/boson/*.py; do
@@ -99,7 +93,10 @@ jobs:
       - name: Smoke-test built wheel
         run: |
           rm -rf /tmp/edinpy-release-wheel
-          python -m pip install             --no-deps             --target /tmp/edinpy-release-wheel             dist/*.whl
+          python -m pip install \
+            --no-deps \
+            --target /tmp/edinpy-release-wheel \
+            dist/*.whl
 
           cd /tmp
           PYTHONPATH=/tmp/edinpy-release-wheel python - <<'PY'
@@ -170,4 +167,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${GITHUB_REF_NAME}"             dist/* SHA256SUMS             --verify-tag             --title "EDinPy ${GITHUB_REF_NAME#v}"             --generate-notes
+          gh release create "${GITHUB_REF_NAME}" \
+            dist/* SHA256SUMS \
+            --verify-tag \
+            --title "EDinPy ${GITHUB_REF_NAME#v}" \
+            --generate-notes
