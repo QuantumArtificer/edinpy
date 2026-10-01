@@ -83,6 +83,12 @@ def test_dense_and_sparse_eigenpairs_agree():
     modes = edf.FermionModes(edf.DoF(8))
     sector = edf.NParticleSector(modes, 4).build()
     H = sum((edf.Hopping(i, i + 1, -1.0, modes) for i in range(7)), start=0)
+    # The uniform open chain is exactly degenerate at the k=4 cutoff.
+    # Break reflection symmetry so ARPACK sees isolated low-energy levels.
+    H += sum(
+        (edf.Onsite(i, 0.07 * i**2, modes) for i in range(8)),
+        start=0,
+    )
     ham = edf.Hamiltonian(H, sector)
     sparse_vals, _ = ham.eigsolve(sparse=True, k=4, which="SA", tol=1e-12)
     dense_vals, _ = ham.eigsolve(sparse=False, k=4, which="SA")
