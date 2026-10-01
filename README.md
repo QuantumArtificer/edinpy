@@ -4,6 +4,7 @@
 [![Docs](https://github.com/QuantumArtificer/edinpy/actions/workflows/docs.yml/badge.svg)](https://quantumartificer.github.io/edinpy/)
 [![Python](https://img.shields.io/badge/python-%3E%3D3.10-blue.svg)](https://www.python.org/)
 [![License](https://img.shields.io/github/license/QuantumArtificer/edinpy.svg)](LICENSE)
+[![DOI](https://zenodo.org/badge/747491440.svg)](https://doi.org/10.5281/zenodo.23090945)
 
 EDinPy is a Python package for exact diagonalization of finite quantum many-body systems in Fock space. Its central aim is to keep numerical calculations close to the second-quantized algebra used to define the physics.
 
