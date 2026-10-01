@@ -8,9 +8,26 @@ from numbers import Integral, Number
 
 import numpy as np
 
+from edinpy._core._states import (
+    BaseFockState,
+    FockBra as _CoreFockBra,
+    FockVector as _CoreFockVector,
+    NullState as _CoreNullState,
+    StateSum as _CoreStateSum,
+    _inner_product as _core_inner_product,
+)
+
+# Shared Dirac/state-vector primitives. Fermion-specific occupation behavior is
+# provided by FockState and FockBasis below; sums, vectors, bras, and the null
+# ket use the statistics-independent core implementation.
+NullState = _CoreNullState
+StateSum = _CoreStateSum
+FockVector = _CoreFockVector
+FockBra = _CoreFockBra
+_inner_product = _core_inner_product
 
 
-class FockState:
+class FockState(BaseFockState):
     """Fermionic occupation-number basis ket represented by an integer bit string.
 
     Parameters
@@ -58,6 +75,15 @@ class FockState:
         self.amp = amp
         self.n_modes = n_modes
         self.index = None if index is None else int(index)
+
+    def _with_amp(self, amp):
+        """Return the same fermionic occupation ket with a new amplitude."""
+        return FockState(
+            self.state,
+            amp=amp,
+            n_modes=self.n_modes,
+            index=self.index,
+        )
 
     def __pos__(self):
         """Return the state unchanged."""
@@ -184,236 +210,40 @@ class FockState:
         return bool(self.state & (1 << mode))
 
 
-class NullState:
-    """Additive zero for symbolic Fock-state actions."""
-
-    __slots__ = ()
-    amp = 0
-
-    def __neg__(self):
-        """Return the additive zero unchanged."""
-        return self
-
-    def __add__(self, other):
-        """Return the other state when adding the additive zero."""
-        if isinstance(other, (FockState, StateSum, NullState)):
-            return other
-        return NotImplemented
-
-    def __radd__(self, other):
-        """Return the other state when adding the additive zero."""
-        return self + other
-
-    def __sub__(self, other):
-        """Return the negative of the other state."""
-        if isinstance(other, (FockState, StateSum, NullState)):
-            return -other
-        return NotImplemented
-
-    def __mul__(self, other):
-        """Return the additive zero under scalar or operator multiplication."""
-        return self
-
-    def __rmul__(self, other):
-        """Return the additive zero under scalar or operator multiplication."""
-        return self
-
-    @property
-    def dag(self):
-        """FockBra: Hermitian adjoint of the additive zero."""
-        return FockBra(self)
-
-    def inner(self, other):
-        """Return zero for the inner product with any compatible ket."""
-        if isinstance(other, (FockState, StateSum, FockVector, NullState)):
-            return 0
-        raise TypeError("'other' must be a fermionic ket.")
-
-    def norm(self):
-        """Return zero for the Hilbert-space norm."""
-        return 0.0
-
-    def normalized(self):
-        """Raise because the additive zero cannot be normalized."""
-        raise ValueError("The zero state cannot be normalized.")
-
-    def __bool__(self):
-        """Return ``False`` for the additive zero."""
-        return False
-
-    def __repr__(self):
-        """Return a representation of the additive zero state."""
-        return "NullState()"
-
-
-class StateSum:
-    """Finite symbolic linear combination of fermionic Fock states.
-
-    Parameters
-    ----------
-    states : iterable of FockState or NullState
-        Terms entering the linear combination.
-
-    Notes
-    -----
-    ``StateSum`` is used for sparse symbolic state algebra, including the
-    result of literal operator action that may change particle number.
-    Eigensolver vectors in one fixed sector are represented by
-    :class:`FockVector`.
-    """
-
-    __slots__ = ("_states",)
-
-    def __init__(self, states):
-        """Construct a state sum without modifying input state objects."""
-        normalized = []
-        for state in states:
-            if isinstance(state, NullState):
-                continue
-            if not isinstance(state, FockState):
-                raise TypeError("StateSum entries must be FockState objects.")
-            normalized.append(state)
-        self._states = tuple(normalized)
-
-    @property
-    def states(self):
-        """tuple[FockState, ...]: Terms in the state sum."""
-        return self._states
-
-    def simplified(self):
-        """Combine duplicate occupation bit strings and remove zero amplitudes.
-
-        Returns
-        -------
-        FockState, StateSum, or NullState
-            Simplified linear combination.
-        """
-        amplitudes = {}
-        metadata = {}
-        for state in self._states:
-            amplitudes[state.state] = amplitudes.get(state.state, 0) + state.amp
-            metadata.setdefault(state.state, (state.n_modes, state.index))
-
-        result = []
-        for state_int in sorted(amplitudes):
-            amp = amplitudes[state_int]
-            if amp == 0:
-                continue
-            n_modes, index = metadata[state_int]
-            result.append(FockState(state_int, amp=amp, n_modes=n_modes, index=index))
-
-        if not result:
-            return NullState()
-        if len(result) == 1:
-            return result[0]
-        return StateSum(result)
-
-    def __neg__(self):
-        """Multiply every amplitude by minus one."""
-        return StateSum((-state for state in self._states))
-
-    def __add__(self, other):
-        """Add a Fock state or another state sum."""
-        if isinstance(other, NullState):
-            return self
-        if isinstance(other, FockState):
-            return StateSum((*self._states, other)).simplified()
-        if isinstance(other, StateSum):
-            return StateSum((*self._states, *other.states)).simplified()
-        return NotImplemented
-
-    def __radd__(self, other):
-        """Add a Fock state or additive zero from the left."""
-        return self + other
-
-    def __sub__(self, other):
-        """Subtract a Fock state or another state sum."""
-        if isinstance(other, (FockState, StateSum, NullState)):
-            return self + (-other)
-        return NotImplemented
-
-    def __mul__(self, scalar):
-        """Multiply every amplitude by a numerical scalar."""
-        if not isinstance(scalar, Number):
-            return NotImplemented
-        return StateSum((state * scalar for state in self._states)).simplified()
-
-    def __rmul__(self, scalar):
-        """Multiply every amplitude by a numerical scalar."""
-        return self * scalar
-
-    @property
-    def dag(self):
-        """FockBra: Hermitian adjoint of the linear combination."""
-        return FockBra(self)
-
-    def inner(self, other):
-        """Return the inner product with another fermionic ket.
-
-        Parameters
-        ----------
-        other : FockState, StateSum, FockVector, or NullState
-            Ket on the right-hand side of the inner product.
-
-        Returns
-        -------
-        numbers.Number
-            Inner product ``<self|other>``.
-        """
-        return _inner_product(self, other)
-
-    def norm(self):
-        """Return the Hilbert-space norm of the linear combination."""
-        return float(np.sqrt(np.real_if_close(self.inner(self))))
-
-    def normalized(self):
-        """Return a unit-normalized linear combination.
-
-        Raises
-        ------
-        ValueError
-            If the state sum is zero.
-        """
-        norm = self.norm()
-        if norm == 0:
-            raise ValueError("The zero state cannot be normalized.")
-        return (1 / norm) * self
-
-    def __repr__(self):
-        """Return an unambiguous representation of the state sum."""
-        return f"StateSum(states={self._states!r})"
-
-
 class FockBasis:
-    """Occupation-number basis for a fixed fermion number.
+    """Occupation-number basis for a fixed number of fermions.
 
     Parameters
     ----------
     n_modes : int
         Number of fermionic modes.
     N : int
-        Number of fermions.
+        Number of fermions. Must satisfy ``0 <= N <= n_modes``.
 
     Notes
     -----
-    Basis states are ordered by their integer occupation bit strings. The
-    fixed-population successor is the standard Gosper combination algorithm
-    [Gosper1972]_. Anderson gives a widely used implementation reference for
-    the same bit-combination construction [Anderson2005]_.
+    Complete fixed-particle-number bases are represented implicitly. Their
+    dimension and state-index maps follow combinatorial ranking, so the full
+    tuple of occupation bit strings is created only when :attr:`states` is
+    requested. Bases with additional particle-number constraints retain only
+    the allowed occupation states.
 
-    References
-    ----------
-    .. [Gosper1972] R. W. Gosper, in *HAKMEM*, MIT AI Memo 239 (1972),
-       Item 175.
-    .. [Anderson2005] S. E. Anderson, "Bit Twiddling Hacks: Compute the
-       lexicographically next bit permutation," Stanford University
-       (1997--2005).
+    Basis states are ordered by ascending occupation bit string, equivalent to
+    combinadic colex order at fixed particle number.
     """
 
-    __slots__ = ("n_modes", "N", "_states")
+    __slots__ = (
+        "n_modes",
+        "N",
+        "_complete",
+        "_dimension",
+        "_states",
+        "_state_array",
+        "_state_words",
+    )
 
     def __init__(self, n_modes, N):
-        """Construct the complete fixed-``N`` occupation-number basis."""
+        """Construct an implicit complete fixed-``N`` occupation basis."""
         if not isinstance(n_modes, Integral) or not isinstance(N, Integral):
             raise TypeError("'n_modes' and 'N' must be integers.")
         n_modes = int(n_modes)
@@ -425,53 +255,245 @@ class FockBasis:
 
         self.n_modes = n_modes
         self.N = N
-        self._states = self._enumerate_states(n_modes, N)
+        self._complete = True
+        self._dimension = comb(n_modes, N)
+        self._states = None
+        self._state_array = None
+        self._state_words = None
 
     @staticmethod
     def _enumerate_states(n_modes, N):
-        """Enumerate fixed-population occupation bit strings in ascending order."""
-        if N == 0:
-            return (0,)
-        if N == n_modes:
-            return ((1 << n_modes) - 1,)
+        """Return complete fixed-population states in ascending integer order.
 
-        count = comb(n_modes, N)
-        states = [0] * count
-        state = (1 << N) - 1
-        limit = 1 << n_modes
-
-        for index in range(count):
-            states[index] = state
-            if index + 1 == count:
-                break
-            lowest = state & -state
-            ripple = state + lowest
-            state = ripple | (((state ^ ripple) >> 2) // lowest)
-            if state >= limit:
-                raise RuntimeError("Fixed-population basis enumeration overflowed.")
-
-        return tuple(states)
+        This compatibility helper intentionally materializes a tuple. Normal
+        complete-basis construction no longer calls it.
+        """
+        return tuple(FockBasis(n_modes, N))
 
     @classmethod
     def _from_sorted_states(cls, n_modes, N, states):
-        """Construct a basis from trusted, sorted states generated internally."""
+        """Construct a projected basis from trusted sorted integer states."""
         basis = cls.__new__(cls)
         basis.n_modes = int(n_modes)
         basis.N = int(N)
-        basis._states = tuple(int(state) for state in states)
+        basis._complete = False
+
+        basis._states = None
+        basis._state_array = None
+        basis._state_words = None
+        if basis.n_modes <= 64:
+            array = np.fromiter(
+                (int(state) for state in states),
+                dtype=np.uint64,
+            )
+            array.setflags(write=False)
+            basis._state_array = array
+            basis._dimension = int(array.size)
+        else:
+            source = states if hasattr(states, "__len__") else tuple(states)
+            dimension = len(source)
+            n_words = (basis.n_modes + 63) // 64
+            words = np.empty((dimension, n_words), dtype=np.uint64)
+            word_mask = (1 << 64) - 1
+            for word in range(n_words):
+                shift = 64 * word
+                words[:, word] = np.fromiter(
+                    (
+                        (int(state) >> shift) & word_mask
+                        for state in source
+                    ),
+                    dtype=np.uint64,
+                    count=dimension,
+                )
+            words.setflags(write=False)
+            basis._state_words = words
+            basis._dimension = dimension
         return basis
 
     def __len__(self):
         """Return the Hilbert-space dimension of the basis."""
-        return len(self._states)
+        return self._dimension
 
     def __iter__(self):
-        """Iterate over integer occupation bit strings."""
-        return iter(self._states)
+        """Iterate over integer occupation bit strings in basis order."""
+        if self._states is not None:
+            yield from self._states
+            return
+        if self._state_array is not None:
+            yield from (int(state) for state in self._state_array)
+            return
+        if self._state_words is not None:
+            for index in range(self._dimension):
+                yield self._state_from_words(index)
+            return
+
+        if self.N == 0:
+            yield 0
+            return
+        if self.N == self.n_modes:
+            yield (1 << self.n_modes) - 1
+            return
+
+        state = (1 << self.N) - 1
+        for index in range(self._dimension):
+            yield state
+            if index + 1 == self._dimension:
+                break
+            lowest = state & -state
+            ripple = state + lowest
+            state = ripple | (((state ^ ripple) >> 2) // lowest)
 
     def __getitem__(self, index):
-        """Return an integer occupation bit string by basis index."""
-        return self._states[index]
+        """Return an occupation bit string by basis index or slice."""
+        if isinstance(index, slice):
+            return tuple(self.state_at(i) for i in range(*index.indices(len(self))))
+        return self.state_at(index)
+
+    @property
+    def is_complete(self):
+        """bool: Whether this is the complete fixed-particle-number basis."""
+        return self._complete
+
+    @property
+    def is_materialized(self):
+        """bool: Whether any explicit state storage has been allocated."""
+        return (
+            self._states is not None
+            or self._state_array is not None
+            or self._state_words is not None
+        )
+
+    @property
+    def estimated_execution_storage_bytes(self):
+        """int: Persistent compact storage expected by matrix-free execution.
+
+        Complete bases up to 64 modes use one ``uint64`` per state. Complete
+        wider bases remain implicit. Projected bases report their existing
+        compact storage. Calling this property never materializes states.
+        """
+        if not self._complete:
+            return self.storage_bytes
+        if self.n_modes <= 64:
+            return self._dimension * np.dtype(np.uint64).itemsize
+        return 0
+
+    @property
+    def storage_bytes(self):
+        """int: Bytes used by cached explicit basis-state storage.
+
+        The value is zero for a freshly constructed implicit complete basis.
+        It excludes the small fixed-size Python ``FockBasis`` object itself.
+        """
+        import sys
+
+        total = 0
+        if self._state_array is not None:
+            total += int(self._state_array.nbytes)
+        if self._state_words is not None:
+            total += int(self._state_words.nbytes)
+        if self._states is not None:
+            total += sys.getsizeof(self._states)
+            total += sum(sys.getsizeof(state) for state in self._states)
+        return total
+
+    def _complete_rank(self, state):
+        """Return the combinadic rank of a validated complete-basis state."""
+        if state < 0 or state.bit_length() > self.n_modes:
+            raise ValueError("The occupation state is not contained in this basis.")
+        if state.bit_count() != self.N:
+            raise ValueError("The occupation state is not contained in this basis.")
+
+        rank = 0
+        occupied_index = 1
+        value = state
+        position = 0
+        while value:
+            if value & 1:
+                rank += comb(position, occupied_index)
+                occupied_index += 1
+            value >>= 1
+            position += 1
+        return rank
+
+    def _complete_state_at(self, index):
+        """Return one complete-basis state by combinadic unranking."""
+        if self.N == 0:
+            return 0
+
+        rank = index
+        state = 0
+        upper = self.n_modes - 1
+        for order in range(self.N, 0, -1):
+            low = order - 1
+            high = upper
+            while low < high:
+                middle = (low + high + 1) // 2
+                if comb(middle, order) <= rank:
+                    low = middle
+                else:
+                    high = middle - 1
+            position = low
+            state |= 1 << position
+            rank -= comb(position, order)
+            upper = position - 1
+        return state
+
+    def _state_from_words(self, index):
+        """Reconstruct one arbitrary-width state from compact uint64 words."""
+        state = 0
+        for word, value in enumerate(self._state_words[index]):
+            state |= int(value) << (64 * word)
+        return state
+
+    def state_at(self, index):
+        """Return the integer occupation bit string at one basis index.
+
+        Parameters
+        ----------
+        index : int
+            Zero-based basis index. Negative indices follow Python indexing.
+
+        Returns
+        -------
+        int
+            Integer whose set bits mark occupied fermionic modes.
+        """
+        if not isinstance(index, Integral):
+            raise TypeError("'index' must be an integer.")
+        index = int(index)
+        if index < 0:
+            index += self._dimension
+        if index < 0 or index >= self._dimension:
+            raise IndexError("Fock-basis index is out of range.")
+
+        if self._states is not None:
+            return self._states[index]
+        if self._state_array is not None:
+            return int(self._state_array[index])
+        if self._state_words is not None:
+            return self._state_from_words(index)
+        return self._complete_state_at(index)
+
+    def _execution_states(self):
+        """Return a compact native-word execution view when available.
+
+        Complete bases up to 64 modes are enumerated lazily into a read-only
+        ``uint64`` array. This avoids the much larger permanent tuple of Python
+        integers while preserving vectorized execution.
+        """
+        if self.n_modes > 64:
+            raise RuntimeError(
+                "Native-word execution states are available only for <=64 modes."
+            )
+        if self._state_array is None:
+            array = np.fromiter(
+                self,
+                dtype=np.uint64,
+                count=self._dimension,
+            )
+            array.setflags(write=False)
+            self._state_array = array
+        return self._state_array
 
     def __contains__(self, state):
         """Return whether an integer occupation bit string belongs to the basis."""
@@ -479,9 +501,11 @@ class FockBasis:
             state = state.state
         if not isinstance(state, Integral):
             return False
-        state = int(state)
-        position = bisect_left(self._states, state)
-        return position < len(self._states) and self._states[position] == state
+        try:
+            self.index(int(state))
+        except ValueError:
+            return False
+        return True
 
     def index(self, state):
         """Return the basis index of an occupation-number state.
@@ -489,397 +513,116 @@ class FockBasis:
         Parameters
         ----------
         state : int or FockState
-            Occupation bit string or corresponding Fock state.
+            Fermionic occupation bit string or basis ket.
 
         Returns
         -------
         int
-            Zero-based position in the ordered Fock basis.
+            Zero-based position in this basis.
 
         Raises
         ------
         ValueError
-            If the state is not contained in the basis.
-        TypeError
-            If ``state`` is neither an integer nor a ``FockState``.
+            If the occupation state does not belong to the basis.
         """
         if isinstance(state, FockState):
             state = state.state
         if not isinstance(state, Integral):
             raise TypeError("'state' must be an integer or FockState.")
         state = int(state)
+
+        if self._complete:
+            return self._complete_rank(state)
+
+        if self._state_array is not None:
+            if state < 0 or state.bit_length() > 64:
+                raise ValueError("The occupation state is not contained in this basis.")
+            position = int(np.searchsorted(self._state_array, np.uint64(state)))
+            if (
+                position >= self._dimension
+                or int(self._state_array[position]) != state
+            ):
+                raise ValueError("The occupation state is not contained in this basis.")
+            return position
+
+        if self._state_words is not None:
+            if state < 0 or state.bit_length() > self.n_modes:
+                raise ValueError("The occupation state is not contained in this basis.")
+            low = 0
+            high = self._dimension
+            while low < high:
+                middle = (low + high) // 2
+                candidate = self._state_from_words(middle)
+                if candidate < state:
+                    low = middle + 1
+                else:
+                    high = middle
+            if low >= self._dimension or self._state_from_words(low) != state:
+                raise ValueError("The occupation state is not contained in this basis.")
+            return low
+
         position = bisect_left(self._states, state)
-        if position >= len(self._states) or self._states[position] != state:
+        if position >= self._dimension or self._states[position] != state:
             raise ValueError("The occupation state is not contained in this basis.")
         return position
 
     @property
     def states(self):
-        """tuple[int, ...]: Integer occupation bit strings in basis order."""
+        """tuple[int, ...]: Integer occupation states in basis order.
+
+        For an implicit or compact basis this compatibility tuple is created
+        lazily on first access.
+        """
+        if self._states is None:
+            self._states = tuple(self)
         return self._states
 
     @property
     def dimension(self):
         """int: Number of basis states."""
-        return len(self._states)
+        return self._dimension
 
     def state(self, index):
-        """Return a basis vector as a :class:`FockState`.
+        """Return one unit-amplitude basis ket.
 
         Parameters
         ----------
         index : int
-            Zero-based basis index.
+            Zero-based basis index. Negative indices follow Python indexing.
 
         Returns
         -------
         FockState
-            Unit-amplitude basis vector.
+            Basis ket with its ``index`` field set to the resolved index.
         """
-        if not isinstance(index, Integral):
-            raise TypeError("'index' must be an integer.")
-        index = int(index)
-        state = self._states[index]
-        return FockState(state, n_modes=self.n_modes, index=index)
+        index = int(index) if isinstance(index, Integral) else index
+        value = self.state_at(index)
+        if index < 0:
+            index += self._dimension
+        return FockState(value, n_modes=self.n_modes, index=index)
 
-
-
-class FockVector:
-    r"""Ket represented by coefficients in an :class:`NParticleSector` basis.
-
-    Parameters
-    ----------
-    coefficients : array_like
-        One-dimensional expansion coefficients :math:`c_\alpha` in the ordered
-        Fock basis of ``sector``.
-    sector : NParticleSector
-        Fixed-particle-number sector defining the basis and fermionic modes.
-
-    Notes
-    -----
-    ``FockVector`` is the basis-backed representation of an eigensolver vector,
-
-    .. math::
-
-        |\psi\rangle = \sum_\alpha c_\alpha |\alpha\rangle.
-
-    The coefficient array is copied on construction and stored read-only.
-    """
-
-    __slots__ = ("sector", "_coefficients")
-
-    def __init__(self, coefficients, sector):
-        """Validate and store coefficients in the sector's Fock-basis order."""
-        from ._sectors import NParticleSector
-
-        if not isinstance(sector, NParticleSector):
-            raise TypeError("'sector' must be an NParticleSector instance.")
-        if not sector.is_built:
-            raise RuntimeError(
-                "The NParticleSector has not been built. Call sector.build() "
-                "before constructing a FockVector."
-            )
-        array = np.asarray(coefficients)
-        if array.ndim != 1:
-            raise ValueError("'coefficients' must be one-dimensional.")
-        if array.shape[0] != sector.dimension:
-            raise ValueError(
-                "The coefficient vector length must equal sector.dimension."
-            )
-        if not np.issubdtype(array.dtype, np.number):
-            raise TypeError("'coefficients' must contain numerical values.")
-        if np.iscomplexobj(array):
-            array = np.asarray(array, dtype=np.complex128)
-        else:
-            array = np.asarray(array, dtype=np.float64)
-        array = array.copy()
-        array.setflags(write=False)
-        self.sector = sector
-        self._coefficients = array
-
-    def __len__(self):
-        """Return the number of Fock-basis coefficients."""
-        return self._coefficients.shape[0]
-
-    def __getitem__(self, index):
-        """Return one coefficient by Fock-basis index."""
-        return self._coefficients[index]
-
-    def __pos__(self):
-        """Return the ket unchanged."""
-        return self
-
-    def __neg__(self):
-        """Return the ket multiplied by minus one."""
-        return FockVector(-self._coefficients, self.sector)
-
-    def __add__(self, other):
-        """Add another Fock vector in the same sector."""
-        if isinstance(other, NullState):
-            return self
-        if not isinstance(other, FockVector):
-            return NotImplemented
-        _require_compatible_sectors(self.sector, other.sector)
-        return FockVector(self._coefficients + other._coefficients, self.sector)
-
-    def __radd__(self, other):
-        """Add another Fock vector or additive zero from the left."""
-        return self + other
-
-    def __sub__(self, other):
-        """Subtract another Fock vector in the same sector."""
-        if not isinstance(other, FockVector):
-            return NotImplemented
-        _require_compatible_sectors(self.sector, other.sector)
-        return FockVector(self._coefficients - other._coefficients, self.sector)
-
-    def __mul__(self, scalar):
-        """Multiply the ket by a numerical scalar."""
-        if not isinstance(scalar, Number):
-            return NotImplemented
-        return FockVector(self._coefficients * scalar, self.sector)
-
-    def __rmul__(self, scalar):
-        """Multiply the ket by a numerical scalar from the left."""
-        return self * scalar
-
-    @property
-    def coefficients(self):
-        """numpy.ndarray: Read-only coefficients in Fock-basis order."""
-        return self._coefficients
-
-    @property
-    def basis(self):
-        """FockBasis: Ordered Fock basis associated with the ket."""
-        return self.sector.basis
-
-    @property
-    def modes(self):
-        """FermionModes: Fermionic modes associated with the ket."""
-        return self.sector.modes
-
-    @property
-    def dag(self):
-        """FockBra: Hermitian adjoint of the ket."""
-        return FockBra(self)
-
-    def inner(self, other):
-        """Return the inner product with another fermionic ket.
+    @staticmethod
+    def expected_dimension(n_modes, N):
+        """Return the dimension of the complete fixed-particle-number basis.
 
         Parameters
         ----------
-        other : FockVector, FockState, StateSum, or NullState
-            Ket on the right-hand side.
+        n_modes : int
+            Number of fermionic modes.
+        N : int
+            Number of fermions.
 
         Returns
         -------
-        numbers.Number
-            Inner product ``<self|other>``.
-
-        Notes
-        -----
-        ``psi.inner(phi)`` is equivalent to ``psi.dag * phi``.
+        int
+            Exact binomial coefficient ``binomial(n_modes, N)``.
         """
-        return _inner_product(self, other)
-
-    def norm(self):
-        """Return the Hilbert-space norm of the ket."""
-        return float(np.linalg.norm(self._coefficients))
-
-    def normalized(self):
-        """Return a unit-normalized Fock vector.
-
-        Raises
-        ------
-        ValueError
-            If the vector has zero norm.
-        """
-        norm = self.norm()
-        if norm == 0:
-            raise ValueError("The zero vector cannot be normalized.")
-        return FockVector(self._coefficients / norm, self.sector)
-
-    def to_vector(self, *, copy=True):
-        """Return the coefficient array in the sector basis.
-
-        Parameters
-        ----------
-        copy : bool, optional
-            Return a writable copy when ``True``. When ``False``, return the
-            internal read-only array.
-
-        Returns
-        -------
-        numpy.ndarray
-            Coefficients in ``self.sector.basis`` ordering.
-        """
-        return self._coefficients.copy() if copy else self._coefficients
-
-    def __repr__(self):
-        """Return an unambiguous representation of the Fock vector."""
-        return (
-            f"FockVector(coefficients={self._coefficients!r}, "
-            f"sector={self.sector!r})"
-        )
-
-
-class FockBra:
-    r"""Hermitian adjoint of a fermionic ket.
-
-    ``FockBra`` objects are normally obtained from the ``dag`` property of a
-    :class:`FockState`, :class:`FockVector`, or symbolic state sum. They support
-    literal Dirac-algebra products such as ``psi.dag * O * psi``.
-    """
-
-    __slots__ = ("_ket",)
-
-    def __init__(self, ket):
-        """Construct a bra as the Hermitian adjoint of a fermionic ket."""
-        if not isinstance(ket, (FockState, StateSum, FockVector, NullState)):
-            raise TypeError("'ket' must be a fermionic ket.")
-        self._ket = ket
-
-    @property
-    def dag(self):
-        """Return the ket whose Hermitian adjoint defines this bra."""
-        return self._ket
-
-    def __mul__(self, other):
-        """Form a bra-ket inner product or append an operator to the bra."""
-        from ._algebra import Operator
-
-        if isinstance(other, Operator):
-            return _BraOperatorProduct(self, other)
-        if isinstance(other, (FockState, StateSum, FockVector, NullState)):
-            return _inner_product(self._ket, other)
-        if isinstance(other, Number):
-            return FockBra(_conjugate(other) * self._ket)
-        return NotImplemented
-
-    def __rmul__(self, other):
-        """Multiply the bra by a numerical scalar from the left."""
-        if isinstance(other, Number):
-            return FockBra(_conjugate(other) * self._ket)
-        return NotImplemented
-
-    def __repr__(self):
-        """Return an unambiguous representation of the bra."""
-        return f"FockBra(ket={self._ket!r})"
-
-
-class _BraOperatorProduct:
-    """Deferred product of a fermionic bra with one or more operators."""
-
-    __slots__ = ("_bra", "_operator")
-
-    def __init__(self, bra, operator):
-        """Store the bra and ordered operator expression."""
-        self._bra = bra
-        self._operator = operator
-
-    def __mul__(self, other):
-        """Append an operator or complete the matrix element with a ket.
-
-        Basis-backed vectors in the same fixed-``N`` sector use the compiled
-        sparse operator matrix directly. Other bra-ket products fall back to
-        literal operator action in Fock space.
-        """
-        from ._algebra import Operator
-
-        if isinstance(other, Operator):
-            return _BraOperatorProduct(self._bra, self._operator * other)
-        if isinstance(other, FockVector) and isinstance(self._bra.dag, FockVector):
-            left = self._bra.dag
-            if left.sector.modes is not other.sector.modes:
-                raise ValueError("Bra and ket use different FermionModes objects.")
-            if left.sector.N == other.sector.N:
-                from ._hamiltonian import Hamiltonian
-
-                matrix = Hamiltonian(self._operator, other.sector).matrix
-                return np.vdot(left.coefficients, matrix @ other.coefficients)
-        if isinstance(other, (FockState, StateSum, FockVector, NullState)):
-            return self._bra * (self._operator * other)
-        if isinstance(other, Number):
-            return _BraOperatorProduct(self._bra, self._operator * other)
-        return NotImplemented
-
-    def __repr__(self):
-        """Return an unambiguous representation of the deferred product."""
-        return (
-            f"_BraOperatorProduct(bra={self._bra!r}, "
-            f"operator={self._operator!r})"
-        )
-
-
-def _conjugate(value):
-    """Return the complex conjugate of a numerical value."""
-    conjugate = getattr(value, "conjugate", None)
-    return conjugate() if conjugate is not None else value
-
-
-def _require_compatible_sectors(left, right):
-    """Validate that two basis-backed vectors use the same Fock-space sector."""
-    if left.modes is not right.modes:
-        raise ValueError("Fock vectors use different FermionModes objects.")
-    if left.N != right.N:
-        raise ValueError("Fock vectors belong to different particle-number sectors.")
-
-
-def _state_sum_amplitudes(state):
-    """Return a mapping from occupation bit strings to amplitudes."""
-    if isinstance(state, NullState):
-        return {}
-    if isinstance(state, FockState):
-        return {state.state: state.amp}
-    if isinstance(state, StateSum):
-        amplitudes = {}
-        for term in state.states:
-            amplitudes[term.state] = amplitudes.get(term.state, 0) + term.amp
-        return {key: value for key, value in amplitudes.items() if value != 0}
-    raise TypeError("Expected FockState, StateSum, or NullState.")
-
-
-def _inner_product(left, right):
-    """Evaluate the Hilbert-space inner product between two fermionic kets."""
-    ket_types = (FockState, StateSum, FockVector, NullState)
-    if not isinstance(left, ket_types) or not isinstance(right, ket_types):
-        raise TypeError("Inner products require fermionic ket objects.")
-
-    if isinstance(left, NullState) or isinstance(right, NullState):
-        return 0
-
-    if isinstance(left, FockVector) and isinstance(right, FockVector):
-        if left.sector.modes is not right.sector.modes:
-            raise ValueError("Fock vectors use different FermionModes objects.")
-        if left.sector.N != right.sector.N:
-            return 0
-        return np.vdot(left.coefficients, right.coefficients)
-
-    if isinstance(left, FockVector):
-        right_map = _state_sum_amplitudes(right)
-        total = 0
-        for state_int, amplitude in right_map.items():
-            if state_int not in left.basis:
-                continue
-            index = left.basis.index(state_int)
-            total += np.conjugate(left.coefficients[index]) * amplitude
-        return total
-
-    if isinstance(right, FockVector):
-        left_map = _state_sum_amplitudes(left)
-        total = 0
-        for state_int, amplitude in left_map.items():
-            if state_int not in right.basis:
-                continue
-            index = right.basis.index(state_int)
-            total += _conjugate(amplitude) * right.coefficients[index]
-        return total
-
-    left_map = _state_sum_amplitudes(left)
-    right_map = _state_sum_amplitudes(right)
-    total = 0
-    for state_int, left_amp in left_map.items():
-        right_amp = right_map.get(state_int)
-        if right_amp is not None:
-            total += _conjugate(left_amp) * right_amp
-    return total
+        if not isinstance(n_modes, Integral) or not isinstance(N, Integral):
+            raise TypeError("'n_modes' and 'N' must be integers.")
+        n_modes = int(n_modes)
+        N = int(N)
+        if n_modes < 0:
+            raise ValueError("'n_modes' must be non-negative.")
+        if N < 0 or N > n_modes:
+            raise ValueError("'N' must satisfy 0 <= N <= n_modes.")
+        return comb(n_modes, N)

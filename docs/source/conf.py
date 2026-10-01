@@ -17,8 +17,6 @@ release = __version__
 extensions = [
     "myst_parser",
     "sphinx.ext.autodoc",
-    "sphinx.ext.autosummary",
-    "sphinx.ext.intersphinx",
     "sphinx.ext.mathjax",
     "sphinx.ext.napoleon",
     "sphinx.ext.viewcode",
@@ -26,7 +24,6 @@ extensions = [
     "sphinx_design",
 ]
 
-autosummary_generate = True
 autodoc_member_order = "bysource"
 autodoc_typehints = "description"
 napoleon_numpy_docstring = True
@@ -41,14 +38,15 @@ myst_enable_extensions = [
 ]
 myst_heading_anchors = 3
 
-intersphinx_mapping = {
-    "python": ("https://docs.python.org/3", None),
-    "numpy": ("https://numpy.org/doc/stable/", None),
-    "scipy": ("https://docs.scipy.org/doc/scipy/", None),
-}
 
-templates_path = ["_templates"]
-exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
+exclude_patterns = [
+    "_build",
+    "Thumbs.db",
+    ".DS_Store",
+    "**/generated/**",
+    "fermion/reference/**",
+    "boson/reference/**",
+]
 
 html_theme = "pydata_sphinx_theme"
 html_title = f"EDinPy {release}"

@@ -4,16 +4,24 @@ All notable changes to EDinPy are documented here.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-01
+
 ### Added
 
-- Lazy `NParticleSector` construction with an explicit `build()` step.
-- `NParticleSector.project_particles()` for resolving conserved particle populations on one or more labeled degrees of freedom before basis generation.
-- Direct one-, two-, and multi-degree-of-freedom constrained basis generators.
+- Explicit bosonic modes, fixed-particle-number sectors, symbolic Fock algebra, common lattice operators, sparse Hamiltonians, basis-backed states, and matrix-free eigensolvers under `edinpy.boson`.
+- Symmetry-constrained fixed-particle-number sectors for separately conserved populations on labeled degrees of freedom.
+- Matrix-free Hamiltonian execution through public `numpy`, `numba-serial`, and `numba-parallel` backends, with conservative `mixed` fallback behavior.
+- Solver-memory planning and matrix-free solve diagnostics for iterative eigensolves.
+- Compact basis storage and execution views for large complete and symmetry-constrained sectors.
+- Unified fermionic and bosonic documentation with a physics-oriented user guide, worked examples, shared API reference, theory notes, and numerical validation.
 
 ### Changed
 
-- Constrained sectors are generated directly instead of constructing the complete fixed-$N$ basis and filtering it.
-- Constrained basis generation above 64 modes uses a multiword `uint64` backend while preserving Python-integer Fock states in the public API.
+- Statistics-independent mode, state, Hamiltonian, and eigensolver infrastructure is shared between the fermionic and bosonic APIs.
+- Symmetry-constrained sectors are generated directly from their conserved-number constraints instead of constructing a complete fixed-particle-number basis and filtering it.
+- Complete fixed-particle-number fermion execution uses direct combinatorial ranking in compiled Numba kernels; bosonic compiled execution ranks weak compositions directly.
+- Matrix-free serial and parallel execution reuse compiled operator/basis plans across repeated Hamiltonian applications.
+- Benchmarks are organized around durable basis, execution, matrix-free, and solver-memory measurements rather than implementation-specific experiments.
 
 ## [0.2.0] - 2026-09-21
 
@@ -35,7 +43,8 @@ All notable changes to EDinPy are documented here.
 
 ### Notes
 
-The bosonic module uses a separate API and currently has less validation and documentation coverage than the fermionic module.
+In 0.2.0, the bosonic module still used the older separate API and had less validation and documentation coverage than the fermionic module.
 
-[Unreleased]: https://github.com/QuantumArtificer/edinpy/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/QuantumArtificer/edinpy/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/QuantumArtificer/edinpy/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/QuantumArtificer/edinpy/releases/tag/v0.2.0

@@ -4,28 +4,47 @@ Run from the repository root with::
 
     PYTHONPATH=src python docs/scripts/generate_figures.py
 
-Every numerical data point is produced with the public EDinPy API. Analytical
-curves are used only where the corresponding closed-form result is stated in
-the documentation.
+Many-body model figures are produced with the public EDinPy API. Analytical
+curves are used where the corresponding result is stated in the documentation.
+Performance figures read versioned benchmark snapshots from ``docs/data``.
 """
 
 from __future__ import annotations
 
+import json
 from math import comb
 from pathlib import Path
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
+from scipy.integrate import quad
+from scipy.special import j0, j1
 
+from edinpy import boson as edb
 from edinpy import fermion as edf
 
 ROOT = Path(__file__).resolve().parents[2]
 OUT = ROOT / "docs" / "source" / "_static" / "figures"
+DATA = ROOT / "docs" / "data"
 OUT.mkdir(parents=True, exist_ok=True)
 
 # Make committed SVG assets reproducible across repeated local builds.
 mpl.rcParams["svg.hashsalt"] = "edinpy-docs"
+mpl.rcParams.update(
+    {
+        "font.size": 10,
+        "axes.labelsize": 10,
+        "xtick.labelsize": 9,
+        "ytick.labelsize": 9,
+        "legend.fontsize": 9,
+        "legend.frameon": True,
+        "legend.fancybox": False,
+        "legend.framealpha": 1.0,
+        "lines.linewidth": 1.6,
+        "lines.markersize": 4.0,
+    }
+)
 
 UP, DOWN = 0, 1
 
@@ -185,11 +204,9 @@ def dimer_site_label(state: int):
 
 
 def hubbard_dimer_observables():
-    """Analytic and ED observables for the symmetric half-filled dimer."""
+    """Generate single-purpose Hubbard-dimer observables versus U/t."""
     U_values = np.linspace(0.0, 12.0, 49)
-    e_ed = []
     d_ed = []
-    moment_ed = []
     spin_ed = []
     gap_ed = []
 
@@ -202,66 +219,67 @@ def hubbard_dimer_observables():
         modes = model["modes"]
 
         D = n(0, UP) * n(0, DOWN) + n(1, UP) * n(1, DOWN)
-        local_moment = 0.5 * (
-            (n(0, UP) - n(0, DOWN)) * (n(0, UP) - n(0, DOWN))
-            + (n(1, UP) - n(1, DOWN)) * (n(1, UP) - n(1, DOWN))
-        )
         Sdot = edf.HeisenbergExchange(
             (0, UP), (0, DOWN), (1, UP), (1, DOWN), 1.0, modes
         )
-
-        e_ed.append(energies[0])
         d_ed.append(np.real(psi0.dag * D * psi0))
-        moment_ed.append(np.real(psi0.dag * local_moment * psi0))
         spin_ed.append(np.real(psi0.dag * Sdot * psi0))
         gap_ed.append(energies[1] - energies[0])
 
     U_exact = np.linspace(0.0, 12.0, 500)
     root = np.sqrt(U_exact**2 + 16.0)
-    e_exact = 0.5 * (U_exact - root)
     d_exact = 0.5 * (1.0 - U_exact / root)
-    moment_exact = 1.0 - d_exact
-    spin_exact = -0.75 * moment_exact
+    spin_exact = -0.75 * (1.0 - d_exact)
     gap_exact = 0.5 * (root - U_exact)
 
-    fig, axes = plt.subplots(2, 2, figsize=(10.4, 7.6), constrained_layout=True)
+    fig, ax = plt.subplots(figsize=(6.5, 4.2), constrained_layout=True)
+    ax.plot(U_exact, d_exact, label="exact")
+    ax.plot(U_values, d_ed, "o", label="ED")
+    ax.set_xlabel(r"$U/t$")
+    ax.set_ylabel(r"$\langle D\rangle$")
+    ax.legend(frameon=True)
+    save(fig, "example_hubbard_dimer_double_occupancy.svg")
 
-    axes[0, 0].plot(U_exact, e_exact, label="analytic")
-    axes[0, 0].plot(U_values, e_ed, "o", markersize=3.2, label="EDinPy")
-    axes[0, 0].set_xlabel(r"$U/t$")
-    axes[0, 0].set_ylabel(r"$E_0/t$")
-    axes[0, 0].set_title("Ground-state energy")
-    axes[0, 0].legend()
+    fig, ax = plt.subplots(figsize=(6.5, 4.2), constrained_layout=True)
+    ax.plot(U_exact, spin_exact, label="exact")
+    ax.plot(U_values, spin_ed, "o", label="ED")
+    ax.axhline(-0.75, linestyle="--", linewidth=1.0, label=r"$-3/4$")
+    ax.set_xlabel(r"$U/t$")
+    ax.set_ylabel(r"$\langle\mathbf{S}_0\!\cdot\!\mathbf{S}_1\rangle$")
+    ax.legend(frameon=True)
+    save(fig, "example_hubbard_dimer_spin_correlation.svg")
 
-    axes[0, 1].plot(U_exact, d_exact, label=r"double occupancy $\langle D\rangle$")
-    axes[0, 1].plot(U_exact, moment_exact, label=r"local moment $\mu^2$")
-    axes[0, 1].plot(U_values, d_ed, "o", markersize=3.0)
-    axes[0, 1].plot(U_values, moment_ed, "o", markersize=3.0)
-    axes[0, 1].set_xlabel(r"$U/t$")
-    axes[0, 1].set_ylabel("dimensionless expectation value")
-    axes[0, 1].set_title("Charge suppression and moment formation")
-    axes[0, 1].legend()
-
-    axes[1, 0].plot(U_exact, spin_exact, label="analytic")
-    axes[1, 0].plot(U_values, spin_ed, "o", markersize=3.2, label="EDinPy")
-    axes[1, 0].axhline(-0.75, linestyle="--", linewidth=1.0, label="pure singlet")
-    axes[1, 0].set_xlabel(r"$U/t$")
-    axes[1, 0].set_ylabel(r"$\langle\mathbf{S}_0\cdot\mathbf{S}_1\rangle$")
-    axes[1, 0].set_title("Antiferromagnetic correlation")
-    axes[1, 0].legend()
-
+    fig, ax = plt.subplots(figsize=(6.5, 4.2), constrained_layout=True)
+    ax.plot(U_exact, gap_exact, label="exact")
     mask = U_exact >= 2.0
-    axes[1, 1].plot(U_exact, gap_exact, label="exact gap")
-    axes[1, 1].plot(U_exact[mask], 4.0 / U_exact[mask], "--", label=r"$4t^2/U$")
-    axes[1, 1].plot(U_values[1:], np.asarray(gap_ed)[1:], "o", markersize=3.0, label="EDinPy")
-    axes[1, 1].set_xlabel(r"$U/t$")
-    axes[1, 1].set_ylabel(r"$\Delta_{ST}/t$")
-    axes[1, 1].set_ylim(0.0, 2.1)
-    axes[1, 1].set_title("Singlet-triplet gap")
-    axes[1, 1].legend()
+    ax.plot(U_exact[mask], 4.0 / U_exact[mask], "--", label=r"$4t^2/U$")
+    ax.plot(U_values[1:], np.asarray(gap_ed)[1:], "o", label="ED")
+    ax.set_xlabel(r"$U/t$")
+    ax.set_ylabel(r"$\Delta_{ST}/t$")
+    ax.legend(frameon=True)
+    save(fig, "example_hubbard_dimer_gap.svg")
 
-    save(fig, "hubbard_dimer_observables.svg")
 
+
+def hubbard_dimer_spectrum():
+    """Complete half-filled Hubbard-dimer spectrum as a function of U/t."""
+    U_values = np.linspace(0.0, 12.0, 97)
+    spectra = []
+    for U in U_values:
+        model = spinful_chain(2, U=U, periodic=False)
+        energies, _ = model["hamiltonian"].eigsolve(k=None)
+        spectra.append(energies)
+    spectra = np.asarray(spectra)
+
+    fig, ax = plt.subplots(figsize=(7.0, 4.5), constrained_layout=True)
+    ax.plot(U_values, spectra[:, 0], label=r"$E_0$")
+    ax.plot(U_values, spectra[:, 1], label=r"$S=1$")
+    ax.plot(U_values, spectra[:, 4], label=r"$E_U$")
+    ax.plot(U_values, spectra[:, 5], label=r"$E_+$")
+    ax.set_xlabel(r"$U/t$")
+    ax.set_ylabel(r"$E/t$")
+    ax.legend(frameon=True)
+    save(fig, "hubbard_dimer_spectrum.svg")
 
 def hubbard_dimer_wavefunction():
     """Ground-state probabilities in the six-dimensional dimer basis."""
@@ -276,21 +294,17 @@ def hubbard_dimer_wavefunction():
     fig, ax = plt.subplots(figsize=(8.0, 4.2), constrained_layout=True)
     ax.bar(labels, probabilities)
     ax.set_ylabel(r"$|\langle\alpha|\psi_0\rangle|^2$")
-    ax.set_title(r"Hubbard-dimer ground state at $U/t=4$")
     ax.tick_params(axis="x", rotation=25)
     save(fig, "hubbard_dimer_wavefunction.svg")
 
 
 def hubbard_chain_spectrum_observables():
-    """Spectrum and several ground-state observables for a six-site ring."""
+    """Generate Hubbard-ring spectra and local observables versus U/t."""
     L = 6
     U_values = np.linspace(0.0, 8.0, 33)
     levels = []
     double_occupancy = []
     local_moment = []
-    spin_pi = []
-    charge_pi = []
-    pair_zero = []
 
     for U in U_values:
         model = spinful_chain(L, U=U, periodic=True)
@@ -298,7 +312,6 @@ def hubbard_chain_spectrum_observables():
         energies, _ = ham.eigsolve(k=8, which="SA", v0=np.ones(ham.sector.dimension))
         psi0 = ham.eigenstate(0)
         n = model["n"]
-
         levels.append(energies - energies[0])
         double_occupancy.append(
             sum(
@@ -319,56 +332,35 @@ def hubbard_chain_spectrum_observables():
             )
             / L
         )
-        spin_pi.append(structure_factor(psi0, spin_operators(model), np.pi))
-        charge_pi.append(structure_factor(psi0, charge_operators(model), np.pi))
-        pair_zero.append(structure_factor(psi0, pair_operators(model), 0.0))
 
     levels = np.asarray(levels)
 
-    fig, axes = plt.subplots(2, 2, figsize=(10.5, 7.6), constrained_layout=True)
+    fig, ax = plt.subplots(figsize=(6.5, 4.2), constrained_layout=True)
+    for level in range(1, levels.shape[1]):
+        ax.plot(U_values, levels[:, level], linewidth=1.1)
+    ax.set_xlabel(r"$U/t$")
+    ax.set_ylabel(r"$(E_n-E_0)/t$")
+    save(fig, "example_hubbard_chain_spectrum.svg")
 
-    for level in range(levels.shape[1]):
-        axes[0, 0].plot(U_values, levels[:, level], linewidth=1.1)
-    axes[0, 0].set_xlabel(r"$U/t$")
-    axes[0, 0].set_ylabel(r"$(E_n-E_0)/t$")
-    axes[0, 0].set_title("Lowest eight many-body levels")
+    fig, ax = plt.subplots(figsize=(6.5, 4.2), constrained_layout=True)
+    ax.plot(U_values, double_occupancy, "o-")
+    ax.set_xlabel(r"$U/t$")
+    ax.set_ylabel(r"$D$")
+    save(fig, "example_hubbard_chain_double_occupancy.svg")
 
-    axes[0, 1].plot(
-        U_values,
-        double_occupancy,
-        label=r"$\langle n_{i\uparrow}n_{i\downarrow}\rangle$",
-    )
-    axes[0, 1].plot(
-        U_values,
-        local_moment,
-        label=r"$\mu^2=\langle(n_{i\uparrow}-n_{i\downarrow})^2\rangle$",
-    )
-    axes[0, 1].set_xlabel(r"$U/t$")
-    axes[0, 1].set_ylabel("site average")
-    axes[0, 1].set_title("Local charge and spin diagnostics")
-    axes[0, 1].legend()
+    fig, ax = plt.subplots(figsize=(6.5, 4.2), constrained_layout=True)
+    ax.plot(U_values, local_moment, "o-")
+    ax.set_xlabel(r"$U/t$")
+    ax.set_ylabel(r"$\mu^2$")
+    save(fig, "example_hubbard_chain_local_moment.svg")
 
-    axes[1, 0].plot(U_values, spin_pi, label=r"$S_s(\pi)$")
-    axes[1, 0].plot(U_values, charge_pi, label=r"$S_c(\pi)$")
-    axes[1, 0].set_xlabel(r"$U/t$")
-    axes[1, 0].set_ylabel("structure factor")
-    axes[1, 0].set_title(r"Spin and charge response at $q=\pi$")
-    axes[1, 0].legend()
-
-    axes[1, 1].plot(U_values, pair_zero)
-    axes[1, 1].set_xlabel(r"$U/t$")
-    axes[1, 1].set_ylabel(r"$P(q=0)$")
-    axes[1, 1].set_title("On-site pair structure factor")
-
-    save(fig, "hubbard_chain_spectrum_observables.svg")
 
 
 def hubbard_chain_correlations():
-    """Real-space spin and connected charge correlations of a six-site ring."""
+    """Generate separate real-space spin and charge correlations."""
     L = 6
     distances = np.arange(L // 2 + 1)
-    fig, axes = plt.subplots(1, 2, figsize=(10.2, 4.0), constrained_layout=True)
-
+    data = {}
     for U in (0.0, 4.0, 8.0):
         model = spinful_chain(L, U=U, periodic=True)
         ham = model["hamiltonian"]
@@ -378,63 +370,63 @@ def hubbard_chain_correlations():
         charges = charge_operators(model)
         spin_corr = [translational_correlation(psi0, spins, int(r)) for r in distances]
         charge_corr = [translational_correlation(psi0, charges, int(r)) for r in distances]
-        axes[0].plot(distances, spin_corr, "o-", label=fr"$U/t={U:g}$")
-        axes[1].plot(distances, charge_corr, "o-", label=fr"$U/t={U:g}$")
+        data[U] = (spin_corr, charge_corr)
 
-    axes[0].axhline(0.0, linewidth=0.8)
-    axes[0].set_xticks(distances)
-    axes[0].set_xlabel("separation $r$")
-    axes[0].set_ylabel(r"$C_s(r)$")
-    axes[0].set_title(r"$\langle S_i^z S_{i+r}^z\rangle$")
-    axes[0].legend()
+    fig, ax = plt.subplots(figsize=(6.5, 4.2), constrained_layout=True)
+    for U, (spin_corr, _charge_corr) in data.items():
+        ax.plot(distances, spin_corr, "o-", label=fr"$U/t={U:g}$")
+    ax.axhline(0.0, linewidth=0.8)
+    ax.set_xticks(distances)
+    ax.set_xlabel(r"$r$")
+    ax.set_ylabel(r"$C_s(r)$")
+    ax.legend(frameon=True)
+    save(fig, "example_hubbard_chain_spin_correlations.svg")
 
-    axes[1].axhline(0.0, linewidth=0.8)
-    axes[1].set_xticks(distances)
-    axes[1].set_xlabel("separation $r$")
-    axes[1].set_ylabel(r"$C_c(r)$")
-    axes[1].set_title(r"$\langle\delta n_i\,\delta n_{i+r}\rangle$")
-    axes[1].legend()
-
-    save(fig, "hubbard_chain_correlations.svg")
+    fig, ax = plt.subplots(figsize=(6.5, 4.2), constrained_layout=True)
+    for U, (_spin_corr, charge_corr) in data.items():
+        ax.plot(distances, charge_corr, "o-", label=fr"$U/t={U:g}$")
+    ax.axhline(0.0, linewidth=0.8)
+    ax.set_xticks(distances)
+    ax.set_xlabel(r"$r$")
+    ax.set_ylabel(r"$C_c(r)$")
+    ax.legend(frameon=True)
+    save(fig, "example_hubbard_chain_charge_correlations.svg")
 
 
 def hubbard_chain_structure_factors():
-    """Momentum-resolved spin, charge, and pair structure factors."""
+    """Generate separate momentum-resolved spin, charge, and pair structure factors."""
     L = 6
     q_values = 2.0 * np.pi * np.arange(L) / L
     q_over_pi = q_values / np.pi
-    fig, axes = plt.subplots(1, 3, figsize=(13.0, 4.0), constrained_layout=True)
-
+    data = {}
     for U in (0.0, 4.0, 8.0):
         model = spinful_chain(L, U=U, periodic=True)
         ham = model["hamiltonian"]
         ham.eigsolve(k=1, which="SA", v0=np.ones(ham.sector.dimension))
         psi0 = ham.eigenstate(0)
-        spins = spin_operators(model)
-        charges = charge_operators(model)
-        pairs = pair_operators(model)
-        s_spin = [structure_factor(psi0, spins, q) for q in q_values]
-        s_charge = [structure_factor(psi0, charges, q) for q in q_values]
-        s_pair = [structure_factor(psi0, pairs, q) for q in q_values]
-        label = fr"$U/t={U:g}$"
-        axes[0].plot(q_over_pi, s_spin, "o-", label=label)
-        axes[1].plot(q_over_pi, s_charge, "o-", label=label)
-        axes[2].plot(q_over_pi, s_pair, "o-", label=label)
+        data[U] = (
+            [structure_factor(psi0, spin_operators(model), q) for q in q_values],
+            [structure_factor(psi0, charge_operators(model), q) for q in q_values],
+            [structure_factor(psi0, pair_operators(model), q) for q in q_values],
+        )
 
-    titles = ("Spin structure factor", "Charge structure factor", "Pair structure factor")
-    ylabels = (r"$S_s(q)$", r"$S_c(q)$", r"$P(q)$")
-    for ax, title, ylabel in zip(axes, titles, ylabels):
+    for filename, ylabel, index in (
+        ("example_hubbard_chain_spin_structure.svg", r"$S_s(q)$", 0),
+        ("example_hubbard_chain_charge_structure.svg", r"$S_c(q)$", 1),
+        ("example_hubbard_chain_pair_structure_q.svg", r"$P(q)$", 2),
+    ):
+        fig, ax = plt.subplots(figsize=(6.5, 4.2), constrained_layout=True)
+        for U, values in data.items():
+            ax.plot(q_over_pi, values[index], "o-", label=fr"$U/t={U:g}$")
         ax.set_xlabel(r"$q/\pi$")
         ax.set_ylabel(ylabel)
-        ax.set_title(title)
         ax.set_xticks(q_over_pi)
-        ax.legend()
-
-    save(fig, "hubbard_chain_structure_factors.svg")
+        ax.legend(frameon=True)
+        save(fig, filename)
 
 
 def extended_hubbard_competition():
-    """Spin, charge, and bond diagnostics across the extended-Hubbard crossover."""
+    """Generate staggered extended-Hubbard diagnostics versus V/t."""
     L = 6
     U = 4.0
     V_values = np.linspace(0.0, 4.0, 33)
@@ -442,7 +434,6 @@ def extended_hubbard_competition():
     charge_pi = []
     bond_pi = []
     double_occupancy = []
-    local_moment = []
 
     for V in V_values:
         model = spinful_chain(L, U=U, V=V, periodic=True)
@@ -450,10 +441,9 @@ def extended_hubbard_competition():
         ham.eigsolve(k=1, which="SA", v0=np.ones(ham.sector.dimension))
         psi0 = ham.eigenstate(0)
         n = model["n"]
-
         spin_pi.append(structure_factor(psi0, spin_operators(model), np.pi))
         charge_pi.append(structure_factor(psi0, charge_operators(model), np.pi))
-        bond_pi.append(structure_factor(psi0, bond_operators(model), np.pi))
+        bond_pi.append(connected_structure_factor(psi0, bond_operators(model), np.pi))
         double_occupancy.append(
             sum(
                 np.real(psi0.dag * n(i, UP) * n(i, DOWN) * psi0)
@@ -461,123 +451,116 @@ def extended_hubbard_competition():
             )
             / L
         )
-        local_moment.append(
-            sum(
-                np.real(
-                    psi0.dag
-                    * (n(i, UP) - n(i, DOWN))
-                    * (n(i, UP) - n(i, DOWN))
-                    * psi0
-                )
-                for i in range(L)
-            )
-            / L
-        )
 
-    fig, axes = plt.subplots(1, 2, figsize=(10.4, 4.1), constrained_layout=True)
-    axes[0].plot(V_values, spin_pi, label=r"spin $S_s(\pi)$")
-    axes[0].plot(V_values, charge_pi, label=r"charge $S_c(\pi)$")
-    axes[0].plot(V_values, bond_pi, label=r"bond $S_B(\pi)$")
-    axes[0].axvline(U / 2.0, linestyle="--", linewidth=1.0, label=r"$V=U/2$")
-    axes[0].set_xlabel(r"$V/t$ at $U/t=4$")
-    axes[0].set_ylabel("structure factor")
-    axes[0].set_title("Competing staggered correlations")
-    axes[0].legend()
-
-    axes[1].plot(V_values, double_occupancy, label="double occupancy")
-    axes[1].plot(V_values, local_moment, label="local moment")
-    axes[1].axvline(U / 2.0, linestyle="--", linewidth=1.0)
-    axes[1].set_xlabel(r"$V/t$ at $U/t=4$")
-    axes[1].set_ylabel("site average")
-    axes[1].set_title("Local reorganization of the ground state")
-    axes[1].legend()
-
-    save(fig, "extended_hubbard_competition.svg")
+    for filename, values, ylabel in (
+        ("example_extended_hubbard_spin_pi.svg", spin_pi, r"$S_s(\pi)$"),
+        ("example_extended_hubbard_charge_pi.svg", charge_pi, r"$S_c(\pi)$"),
+        ("example_extended_hubbard_bond_pi.svg", bond_pi, r"$S_B^{\mathrm{conn}}(\pi)$"),
+        ("example_extended_hubbard_double_occupancy.svg", double_occupancy, r"$D$"),
+    ):
+        fig, ax = plt.subplots(figsize=(6.5, 4.2), constrained_layout=True)
+        ax.plot(V_values, values, "o-")
+        ax.axvline(U / 2.0, linestyle="--", linewidth=1.0, label=r"$U/2$")
+        ax.set_xlabel(r"$V/t$")
+        ax.set_ylabel(ylabel)
+        ax.legend(frameon=True)
+        save(fig, filename)
 
 
 def extended_hubbard_structure_profiles():
-    """Momentum profiles on the SDW-like, crossover, and CDW-like sides."""
+    """Generate separate momentum profiles across the extended-Hubbard crossover."""
     L = 6
     U = 4.0
     q_values = 2.0 * np.pi * np.arange(L) / L
     q_over_pi = q_values / np.pi
     V_samples = (0.5, 2.25, 3.5)
-    fig, axes = plt.subplots(1, 3, figsize=(13.0, 4.0), constrained_layout=True)
+    data = {}
 
     for V in V_samples:
         model = spinful_chain(L, U=U, V=V, periodic=True)
         ham = model["hamiltonian"]
         ham.eigsolve(k=1, which="SA", v0=np.ones(ham.sector.dimension))
         psi0 = ham.eigenstate(0)
-        spin_values = [structure_factor(psi0, spin_operators(model), q) for q in q_values]
-        charge_values = [structure_factor(psi0, charge_operators(model), q) for q in q_values]
         bonds = bond_operators(model)
-        bond_values = [connected_structure_factor(psi0, bonds, q) for q in q_values]
-        label = fr"$V/t={V:g}$"
-        axes[0].plot(q_over_pi, spin_values, "o-", label=label)
-        axes[1].plot(q_over_pi, charge_values, "o-", label=label)
-        axes[2].plot(q_over_pi, bond_values, "o-", label=label)
+        data[V] = (
+            [structure_factor(psi0, spin_operators(model), q) for q in q_values],
+            [structure_factor(psi0, charge_operators(model), q) for q in q_values],
+            [connected_structure_factor(psi0, bonds, q) for q in q_values],
+        )
 
-    titles = ("Spin", "Charge", "Bond")
-    ylabels = (r"$S_s(q)$", r"$S_c(q)$", r"$S_B(q)$")
-    for ax, title, ylabel in zip(axes, titles, ylabels):
+    for filename, ylabel, index in (
+        ("example_extended_hubbard_spin_q.svg", r"$S_s(q)$", 0),
+        ("example_extended_hubbard_charge_q.svg", r"$S_c(q)$", 1),
+        ("example_extended_hubbard_bond_q.svg", r"$S_B^{\mathrm{conn}}(q)$", 2),
+    ):
+        fig, ax = plt.subplots(figsize=(6.5, 4.2), constrained_layout=True)
+        for V, values in data.items():
+            ax.plot(q_over_pi, values[index], "o-", label=fr"$V/t={V:g}$")
         ax.set_xlabel(r"$q/\pi$")
         ax.set_ylabel(ylabel)
-        ax.set_title(f"{title} structure factor")
         ax.set_xticks(q_over_pi)
-        ax.legend()
-
-    save(fig, "extended_hubbard_structure_profiles.svg")
+        ax.legend(frameon=True)
+        save(fig, filename)
 
 
 def spin_exchange_spectrum():
-    """Two-site Heisenberg exchange spectrum and ground-state correlation."""
-    site = edf.DoF(2, name="site")
-    spin = edf.DoF(2, name="spin")
+    """Generate the constrained two-spin Heisenberg spectrum and total spin."""
+    site = edf.DoF(2, name="site", labels=("left", "right"))
+    spin = edf.DoF(2, name="spin", labels=("up", "down"))
     modes = edf.FermionModes(site, spin)
-    sector = edf.NParticleSector(modes, N=2).build()
-    Sdot = edf.HeisenbergExchange(
+    sector = (
+        edf.NParticleSector(modes, N=2)
+        .project_particles("site", left=1, right=1)
+        .build()
+    )
+    sdot = edf.HeisenbergExchange(
         (0, UP), (0, DOWN), (1, UP), (1, DOWN), 1.0, modes
     )
+    splus = sum(
+        (edf.SpinPlus((i, UP), (i, DOWN), modes) for i in range(2)), start=0
+    )
+    sminus = sum(
+        (edf.SpinMinus((i, UP), (i, DOWN), modes) for i in range(2)), start=0
+    )
+    sz = sum(
+        (edf.SpinZ((i, UP), (i, DOWN), modes) for i in range(2)), start=0
+    )
+    s2 = sz * sz + 0.5 * (splus * sminus + sminus * splus)
 
     J_values = np.linspace(-2.0, 2.0, 81)
     spectra = []
-    correlations = []
     for J in J_values:
-        H = J * Sdot
-        ham = edf.Hamiltonian(H, sector)
+        ham = edf.Hamiltonian(J * sdot, sector)
         energies, _ = ham.eigsolve(k=None)
         spectra.append(energies)
-        if abs(J) < 1e-12:
-            correlations.append(np.nan)
-        else:
-            psi0 = ham.eigenstate(0)
-            correlations.append(np.real(psi0.dag * Sdot * psi0))
-
     spectra = np.asarray(spectra)
-    fig, axes = plt.subplots(1, 2, figsize=(10.0, 4.0), constrained_layout=True)
+
+    fig, ax = plt.subplots(figsize=(6.5, 4.2), constrained_layout=True)
     for level in range(spectra.shape[1]):
-        axes[0].plot(J_values, spectra[:, level], linewidth=1.0)
-    axes[0].plot(J_values, -0.75 * J_values, "--", label="singlet $-3J/4$")
-    axes[0].plot(J_values, 0.25 * J_values, "--", label="triplet $J/4$")
-    axes[0].axhline(0.0, linestyle=":", linewidth=1.0, label="doublon states")
-    axes[0].set_xlabel(r"$J$")
-    axes[0].set_ylabel("energy")
-    axes[0].set_title("Fermionic two-site exchange spectrum")
-    axes[0].legend()
+        ax.plot(J_values, spectra[:, level], linewidth=1.0)
+    ax.plot(J_values, -0.75 * J_values, "--", label=r"$S=0$")
+    ax.plot(J_values, 0.25 * J_values, "--", label=r"$S=1$")
+    ax.set_xlabel(r"$J$")
+    ax.set_ylabel(r"$E$")
+    ax.legend(frameon=True)
+    save(fig, "example_fermion_exchange_spectrum.svg")
 
-    axes[1].plot(J_values, correlations)
-    axes[1].axhline(-0.75, linestyle="--", linewidth=1.0)
-    axes[1].axhline(0.25, linestyle="--", linewidth=1.0)
-    axes[1].set_xlabel(r"$J$")
-    axes[1].set_ylabel(r"$\langle\mathbf{S}_0\cdot\mathbf{S}_1\rangle$")
-    axes[1].set_title("Ground-state spin character")
-
-    save(fig, "spin_exchange_spectrum.svg")
+    ham = edf.Hamiltonian(sdot, sector)
+    energies, _ = ham.eigsolve(k=None)
+    spin_squared = [
+        np.real(ham.eigenstate(i).dag * s2 * ham.eigenstate(i))
+        for i in range(sector.dimension)
+    ]
+    fig, ax = plt.subplots(figsize=(6.5, 4.2), constrained_layout=True)
+    ax.bar(np.arange(sector.dimension), spin_squared)
+    ax.set_xticks(np.arange(sector.dimension))
+    ax.set_xlabel("eigenstate")
+    ax.set_ylabel(r"$\langle S_{\mathrm{tot}}^2\rangle$")
+    save(fig, "example_fermion_exchange_total_spin.svg")
 
 
 def flux_threaded_ring():
-    """Level flow, many-body energy, and persistent current of a spinless ring."""
+    """Generate level flow, ground-state energy, and persistent current."""
     L = 4
     N = 2
     t = 1.0
@@ -623,47 +606,678 @@ def flux_threaded_ring():
 
     single_particle = np.asarray(single_particle)
     x = phi_values / np.pi
-    fig, axes = plt.subplots(1, 3, figsize=(13.2, 4.0), constrained_layout=True)
 
+    fig, ax = plt.subplots(figsize=(6.5, 4.2), constrained_layout=True)
     for m in range(L):
-        axes[0].plot(x, single_particle[:, m])
-    axes[0].set_xlabel(r"$\phi/\pi$")
-    axes[0].set_ylabel(r"$\varepsilon_m/t$")
-    axes[0].set_title("Single-particle level flow")
+        ax.plot(x, single_particle[:, m], label=fr"$m={m}$")
+    ax.set_xlabel(r"$\phi/\pi$")
+    ax.set_ylabel(r"$\varepsilon_m/t$")
+    ax.legend(frameon=True)
+    save(fig, "example_flux_single_particle.svg")
 
-    axes[1].plot(x, e_exact, label="free-fermion formula")
-    axes[1].plot(x[::8], np.asarray(e_ed)[::8], "o", markersize=3.2, label="EDinPy")
-    axes[1].set_xlabel(r"$\phi/\pi$")
-    axes[1].set_ylabel(r"$E_0/t$")
-    axes[1].set_title("Many-body ground-state energy")
-    axes[1].legend()
+    fig, ax = plt.subplots(figsize=(6.5, 4.2), constrained_layout=True)
+    ax.plot(x, e_exact, label="exact")
+    ax.plot(x[::8], np.asarray(e_ed)[::8], "o", label="ED")
+    ax.set_xlabel(r"$\phi/\pi$")
+    ax.set_ylabel(r"$E_0/t$")
+    ax.legend(frameon=True)
+    save(fig, "example_flux_ground_energy.svg")
 
-    axes[2].plot(x, i_exact, label="analytic branch")
-    axes[2].plot(x[::8], np.asarray(i_ed)[::8], "o", markersize=3.2, label="EDinPy")
-    axes[2].axhline(0.0, linewidth=0.8)
-    axes[2].set_xlabel(r"$\phi/\pi$")
-    axes[2].set_ylabel(r"$I/t$")
-    axes[2].set_title(r"$I=-\partial E_0/\partial\phi$")
-    axes[2].legend()
-
-    save(fig, "flux_threaded_ring.svg")
+    fig, ax = plt.subplots(figsize=(6.5, 4.2), constrained_layout=True)
+    ax.plot(x, i_exact, label="exact")
+    ax.plot(x[::8], np.asarray(i_ed)[::8], "o", label="ED")
+    ax.axhline(0.0, linewidth=0.8)
+    ax.set_xlabel(r"$\phi/\pi$")
+    ax.set_ylabel(r"$I/t$")
+    ax.legend(frameon=True)
+    save(fig, "example_flux_current.svg")
 
 
 def hilbert_space_growth():
-    """Show full and fixed-N Hilbert-space growth for a spinful chain."""
+    """Compare representative fermionic and bosonic fixed-N dimensions."""
     L_values = np.arange(1, 17)
-    full = np.asarray([4**L for L in L_values], dtype=float)
-    half_filled = np.asarray([comb(2 * L, L) for L in L_values], dtype=float)
+    fermion_half_filled = np.asarray(
+        [comb(2 * L, L) for L in L_values], dtype=float
+    )
+    boson_unit_filled = np.asarray(
+        [comb(2 * L - 1, L) for L in L_values], dtype=float
+    )
 
-    fig, ax = plt.subplots(figsize=(6.2, 4.1), constrained_layout=True)
-    ax.semilogy(L_values, full, "o-", label=r"full Fock space $4^L$")
-    ax.semilogy(L_values, half_filled, "o-", label=r"fixed $N=L$: $\binom{2L}{L}$")
-    ax.set_xlabel("spinful sites $L$")
-    ax.set_ylabel("Hilbert-space dimension")
-    ax.set_title("Combinatorial growth of a spinful fermion problem")
-    ax.legend()
+    fig, ax = plt.subplots(figsize=(6.4, 4.2), constrained_layout=True)
+    ax.semilogy(
+        L_values,
+        fermion_half_filled,
+        "o-",
+        label="fermion",
+    )
+    ax.semilogy(
+        L_values,
+        boson_unit_filled,
+        "o-",
+        label="boson",
+    )
+    ax.set_xlabel(r"$L$")
+    ax.set_ylabel(r"sector dimension $D$")
+    ax.legend(frameon=True)
     save(fig, "hilbert_space_growth.svg")
 
+
+
+def bose_hubbard_dimer():
+    """Generate single-purpose Bose-Hubbard dimer figures."""
+    N = 8
+    J = 1.0
+    modes = edb.BosonModes(edb.DoF(2, name="well"))
+    sector = edb.NParticleSector(modes, N=N).build()
+    sx = edb.SpinX(0, 1, modes)
+    sz = edb.SpinZ(0, 1, modes)
+
+    U_values = np.linspace(0.0, 16.0, 41)
+    levels = []
+    coherence = []
+    imbalance_variance = []
+    distributions = {}
+
+    for U in U_values:
+        H = (
+            edb.Hopping(0, 1, -J, modes)
+            + edb.Hubbard(0, U, modes)
+            + edb.Hubbard(1, U, modes)
+        )
+        ham = edb.Hamiltonian(H, sector)
+        energies, _ = ham.eigsolve(k=None)
+        psi0 = ham.eigenstate(0)
+        levels.append(energies[:5] - energies[0])
+        coherence.append(np.real(psi0.dag * sx * psi0) / (N / 2))
+        imbalance_variance.append(
+            np.real(psi0.dag * sz * sz * psi0) / (N / 2) ** 2
+        )
+        for target in (0.0, 4.0, 12.0):
+            if np.isclose(U, target):
+                n_left = np.asarray(
+                    [sector.basis.state_at(i).occupations[0] for i in range(sector.dimension)]
+                )
+                order = np.argsort(n_left)
+                distributions[target] = (
+                    n_left[order],
+                    np.abs(psi0.coefficients[order]) ** 2,
+                )
+
+    levels = np.asarray(levels)
+
+    fig, ax = plt.subplots(figsize=(6.5, 4.2), constrained_layout=True)
+    for level in range(1, levels.shape[1]):
+        ax.plot(U_values, levels[:, level], linewidth=1.1)
+    ax.set_xlabel(r"$U/J$")
+    ax.set_ylabel(r"$(E_n-E_0)/J$")
+    save(fig, "example_bose_dimer_spectrum.svg")
+
+    fig, ax = plt.subplots(figsize=(6.5, 4.2), constrained_layout=True)
+    ax.plot(U_values, coherence, "o-")
+    ax.set_xlabel(r"$U/J$")
+    ax.set_ylabel(r"$\langle S_x\rangle/(N/2)$")
+    save(fig, "example_bose_dimer_coherence.svg")
+
+    fig, ax = plt.subplots(figsize=(6.5, 4.2), constrained_layout=True)
+    ax.plot(U_values, imbalance_variance, "o-")
+    ax.set_xlabel(r"$U/J$")
+    ax.set_ylabel(r"$\langle S_z^2\rangle/(N/2)^2$")
+    save(fig, "example_bose_dimer_imbalance.svg")
+
+    fig, ax = plt.subplots(figsize=(6.5, 4.2), constrained_layout=True)
+    for U, (n_left, probabilities) in sorted(distributions.items()):
+        ax.plot(n_left, probabilities, "o-", label=fr"$U/J={U:g}$")
+    ax.set_xlabel(r"$n_L$")
+    ax.set_ylabel(r"$P(n_L)$")
+    ax.legend(frameon=True)
+    save(fig, "example_bose_dimer_probabilities.svg")
+
+
+def _bose_hubbard_ring(L: int, N: int, U: float, J: float = 1.0):
+    """Return a periodic Bose-Hubbard ring and its basic operator notation."""
+    modes = edb.BosonModes(edb.DoF(L, name="site"))
+    sector = edb.NParticleSector(modes, N=N).build()
+    b = edb.set_notation(edb.Annihilation, modes)
+    bd = edb.set_notation(edb.Creation, modes)
+    n = edb.set_notation(edb.Number, modes)
+    H = 0
+    for i in range(L):
+        H += edb.Hopping(i, (i + 1) % L, -J, modes)
+        H += edb.Hubbard(i, U, modes)
+    return modes, sector, b, bd, n, edb.Hamiltonian(H, sector)
+
+
+def _boson_one_body_density_matrix(psi, b, bd, L: int):
+    """Return rho_ij=<b_i^dag b_j> for one bosonic eigenstate."""
+    return np.asarray(
+        [[psi.dag * bd(i) * b(j) * psi for j in range(L)] for i in range(L)],
+        dtype=complex,
+    )
+
+
+def _boson_density_structure_factor(psi, n, L: int, N: int, q: float):
+    """Return the connected density structure factor at lattice momentum q."""
+    delta_n_q = sum(
+        (
+            np.exp(-1j * q * j) * (n(j) - N / L)
+            for j in range(L)
+        ),
+        start=0,
+    )
+    return float(np.real(psi.dag * delta_n_q.dag * delta_n_q * psi) / L)
+
+
+def bose_hubbard_chain():
+    """Generate finite-ring Bose-Hubbard coherence and density diagnostics."""
+    L = 6
+    N = 6
+    U_values = np.linspace(0.0, 16.0, 17)
+    condensate_fraction = []
+    number_variance = []
+    selected = {}
+
+    for U in U_values:
+        _modes, sector, b, bd, n, ham = _bose_hubbard_ring(L, N, U)
+        ham.eigsolve(k=1, which="SA", v0=np.ones(sector.dimension))
+        psi0 = ham.eigenstate(0)
+        rho = _boson_one_body_density_matrix(psi0, b, bd, L)
+        occupations = np.linalg.eigvalsh(rho)
+        condensate_fraction.append(occupations[-1] / N)
+        local_variances = []
+        for i in range(L):
+            mean = np.real(psi0.dag * n(i) * psi0)
+            mean_square = np.real(psi0.dag * n(i) * n(i) * psi0)
+            local_variances.append(mean_square - mean**2)
+        number_variance.append(np.mean(local_variances))
+
+        for target in (0.0, 4.0, 12.0):
+            if np.isclose(U, target):
+                g1 = []
+                for r in range(L // 2 + 1):
+                    value = 0.0j
+                    for i in range(L):
+                        value += psi0.dag * bd(i) * b((i + r) % L) * psi0
+                    g1.append(np.real(value / L))
+                q_values = 2.0 * np.pi * np.arange(L) / L
+                structure = [
+                    _boson_density_structure_factor(psi0, n, L, N, q)
+                    for q in q_values
+                ]
+                selected[target] = (np.asarray(g1), q_values, np.asarray(structure))
+
+    fig, ax = plt.subplots(figsize=(6.5, 4.2), constrained_layout=True)
+    ax.plot(U_values, condensate_fraction, "o-")
+    ax.set_xlabel(r"$U/J$")
+    ax.set_ylabel(r"$n_0/N$")
+    save(fig, "example_bose_ring_condensate_fraction.svg")
+
+    fig, ax = plt.subplots(figsize=(6.5, 4.2), constrained_layout=True)
+    ax.plot(U_values, number_variance, "o-")
+    ax.set_xlabel(r"$U/J$")
+    ax.set_ylabel(r"$\Delta n^2$")
+    save(fig, "example_bose_ring_number_variance.svg")
+
+    distances = np.arange(L // 2 + 1)
+    fig, ax = plt.subplots(figsize=(6.5, 4.2), constrained_layout=True)
+    for U, (g1, _q, _structure) in sorted(selected.items()):
+        ax.plot(distances, g1, "o-", label=fr"$U/J={U:g}$")
+    ax.set_xlabel(r"$r$")
+    ax.set_ylabel(r"$g^{(1)}(r)$")
+    ax.set_xticks(distances)
+    ax.legend(frameon=True)
+    save(fig, "example_bose_ring_g1.svg")
+
+    fig, ax = plt.subplots(figsize=(6.5, 4.2), constrained_layout=True)
+    for U, (_g1, q_values, structure) in sorted(selected.items()):
+        ax.plot(q_values / np.pi, structure, "o-", label=fr"$U/J={U:g}$")
+    ax.set_xlabel(r"$q/\pi$")
+    ax.set_ylabel(r"$S_n(q)$")
+    ax.set_xticks(2.0 * np.arange(L) / L)
+    ax.legend(frameon=True)
+    save(fig, "example_bose_ring_density_structure.svg")
+
+
+def boson_spin_exchange():
+    """Generate the locally constrained Schwinger-boson Heisenberg spectrum."""
+    site = edb.DoF(2, name="site", labels=("left", "right"))
+    component = edb.DoF(2, name="component", labels=("up", "down"))
+    modes = edb.BosonModes(site, component)
+    sector = (
+        edb.NParticleSector(modes, N=2)
+        .project_particles("site", left=1, right=1)
+        .build()
+    )
+    up, down = 0, 1
+    sdot = edb.HeisenbergExchange(
+        (0, up), (0, down), (1, up), (1, down), 1.0, modes
+    )
+    splus = sum(
+        (edb.SpinPlus((i, up), (i, down), modes) for i in range(2)), start=0
+    )
+    sminus = sum(
+        (edb.SpinMinus((i, up), (i, down), modes) for i in range(2)), start=0
+    )
+    sz = sum(
+        (edb.SpinZ((i, up), (i, down), modes) for i in range(2)), start=0
+    )
+    s2 = sz * sz + 0.5 * (splus * sminus + sminus * splus)
+
+    J_values = np.linspace(-2.0, 2.0, 81)
+    spectra = []
+    for J in J_values:
+        ham = edb.Hamiltonian(J * sdot, sector)
+        energies, _ = ham.eigsolve(k=None)
+        spectra.append(energies)
+    spectra = np.asarray(spectra)
+
+    fig, ax = plt.subplots(figsize=(6.5, 4.2), constrained_layout=True)
+    for level in range(spectra.shape[1]):
+        ax.plot(J_values, spectra[:, level], linewidth=1.0)
+    ax.plot(J_values, -0.75 * J_values, "--", label=r"$S=0$")
+    ax.plot(J_values, 0.25 * J_values, "--", label=r"$S=1$")
+    ax.set_xlabel(r"$J$")
+    ax.set_ylabel(r"$E$")
+    ax.legend(frameon=True)
+    save(fig, "example_boson_exchange_spectrum.svg")
+
+    ham = edb.Hamiltonian(sdot, sector)
+    energies, _ = ham.eigsolve(k=None)
+    spin_squared = [
+        np.real(ham.eigenstate(i).dag * s2 * ham.eigenstate(i))
+        for i in range(sector.dimension)
+    ]
+    fig, ax = plt.subplots(figsize=(6.5, 4.2), constrained_layout=True)
+    ax.bar(np.arange(sector.dimension), spin_squared)
+    ax.set_xticks(np.arange(sector.dimension))
+    ax.set_xlabel("eigenstate")
+    ax.set_ylabel(r"$\langle S_{\mathrm{tot}}^2\rangle$")
+    save(fig, "example_boson_exchange_total_spin.svg")
+
+
+
+def guide_fermion_ring_current():
+    """Persistent current of a half-filled four-site spinless fermion ring."""
+    L = 4
+    N = 2
+    t = 1.0
+    phi_values = np.linspace(-2.0 * np.pi, 2.0 * np.pi, 161)
+    k_values = 2.0 * np.pi * np.arange(L) / L
+
+    site = edf.DoF(L, name="site")
+    modes = edf.FermionModes(site)
+    sector = edf.NParticleSector(modes, N=N).build()
+    c = edf.set_notation(edf.Annihilation, modes)
+    cd = edf.set_notation(edf.Creation, modes)
+
+    current_ed = []
+    current_exact = []
+    for phi in phi_values:
+        theta = phi / L
+        phase = np.exp(1j * theta)
+        H = 0
+        current = 0
+        for i in range(L):
+            j = (i + 1) % L
+            hop = cd(i) * c(j)
+            H += -t * (phase * hop + phase.conjugate() * hop.dag)
+            current += (t / L) * (
+                1j * phase * hop - 1j * phase.conjugate() * hop.dag
+            )
+
+        ham = edf.Hamiltonian(H, sector)
+        ham.eigsolve(k=None)
+        psi0 = ham.eigenstate(0)
+        current_ed.append(np.real(psi0.dag * current * psi0))
+
+        eps = -2.0 * t * np.cos(k_values - theta)
+        occupied = np.argsort(eps)[:N]
+        current_exact.append(
+            (2.0 * t / L) * np.sum(np.sin(k_values[occupied] - theta))
+        )
+
+    fig, ax = plt.subplots(figsize=(6.6, 4.2), constrained_layout=True)
+    x = phi_values / np.pi
+    ax.plot(x, current_exact, label="exact")
+    ax.plot(x[::8], np.asarray(current_ed)[::8], "o", markersize=3.4, label="ED")
+    ax.axhline(0.0, linewidth=0.8)
+    ax.set_xlabel(r"$\phi/\pi$")
+    ax.set_ylabel(r"$I/t$")
+    ax.legend(frameon=True)
+    save(fig, "guide_fermion_ring_current.svg")
+
+
+
+def landing_hubbard_ground_state():
+    """Hubbard-dimer reference curves and ED points for the landing page."""
+    t = 1.0
+    U_reference = np.linspace(0.0, 12.0, 500)
+    U_ed = np.linspace(0.0, 12.0, 13)
+
+    root = np.sqrt(U_reference**2 + 16.0 * t**2)
+    energy_reference = 0.5 * (U_reference - root) / t
+    double_reference = 0.5 * (1.0 - U_reference / root)
+    moment_reference = 1.0 - double_reference
+
+    energy_ed = []
+    double_ed = []
+    moment_ed = []
+
+    for U in U_ed:
+        model = spinful_chain(2, U=U, t=t, periodic=False)
+        ham = model["hamiltonian"]
+        ham.eigsolve(k=None)
+        psi0 = ham.eigenstate(0)
+        n = model["n"]
+
+        double = (
+            n(0, UP) * n(0, DOWN)
+            + n(1, UP) * n(1, DOWN)
+        )
+        moment = 0.5 * (
+            (n(0, UP) - n(0, DOWN)) * (n(0, UP) - n(0, DOWN))
+            + (n(1, UP) - n(1, DOWN)) * (n(1, UP) - n(1, DOWN))
+        )
+
+        energy_ed.append(float(ham.eigvals[0] / t))
+        double_ed.append(float(np.real(psi0.dag * double * psi0)))
+        moment_ed.append(float(np.real(psi0.dag * moment * psi0)))
+
+    fig, axes = plt.subplots(
+        3,
+        1,
+        figsize=(6.4, 7.0),
+        sharex=True,
+        constrained_layout=True,
+    )
+
+    series = (
+        (energy_reference, energy_ed, r"$E_0/t$"),
+        (double_reference, double_ed, r"$D$"),
+        (moment_reference, moment_ed, r"$\mu^2$"),
+    )
+
+    for ax, (reference, ed_values, ylabel) in zip(axes, series):
+        ax.plot(U_reference / t, reference, label="analytic")
+        ax.plot(
+            U_ed / t,
+            ed_values,
+            linestyle="none",
+            marker="o",
+            markerfacecolor="none",
+            label="ED",
+        )
+        ax.set_ylabel(ylabel)
+
+    axes[-1].set_xlabel(r"$U/t$")
+    axes[0].legend(frameon=True)
+    save(fig, "landing_hubbard_ground_state.svg")
+
+
+def guide_hubbard_low_energy():
+    """Low-energy excitation spectrum of a six-site half-filled Hubbard ring."""
+    L = 6
+    U_values = np.linspace(0.0, 8.0, 33)
+    levels = []
+    for U in U_values:
+        model = spinful_chain(L, U=U, periodic=True)
+        ham = model["hamiltonian"]
+        energies, _ = ham.eigsolve(
+            k=8,
+            which="SA",
+            v0=np.ones(ham.sector.dimension),
+        )
+        levels.append(energies - energies[0])
+    levels = np.asarray(levels)
+
+    fig, ax = plt.subplots(figsize=(6.6, 4.2), constrained_layout=True)
+    for level in range(1, levels.shape[1]):
+        ax.plot(U_values, levels[:, level], linewidth=1.1)
+    ax.set_xlabel(r"$U/t$")
+    ax.set_ylabel(r"$(E_n-E_0)/t$")
+    save(fig, "guide_hubbard_low_energy.svg")
+
+
+def guide_hubbard_double_occupancy():
+    """Total double occupancy of the half-filled Hubbard dimer."""
+    U_values = np.linspace(0.0, 12.0, 49)
+    double_ed = []
+    for U in U_values:
+        model = spinful_chain(2, U=U, periodic=False)
+        ham = model["hamiltonian"]
+        ham.eigsolve(k=None)
+        psi0 = ham.eigenstate(0)
+        n = model["n"]
+        D = n(0, UP) * n(0, DOWN) + n(1, UP) * n(1, DOWN)
+        double_ed.append(np.real(psi0.dag * D * psi0))
+
+    U_exact = np.linspace(0.0, 12.0, 500)
+    double_exact = 0.5 * (
+        1.0 - U_exact / np.sqrt(U_exact**2 + 16.0)
+    )
+
+    fig, ax = plt.subplots(figsize=(6.6, 4.2), constrained_layout=True)
+    ax.plot(U_exact, double_exact, label="exact")
+    ax.plot(U_values, double_ed, "o", markersize=3.4, label="ED")
+    ax.set_xlabel(r"$U/t$")
+    ax.set_ylabel(r"$D$")
+    ax.legend(frameon=True)
+    save(fig, "guide_hubbard_double_occupancy.svg")
+
+
+def guide_hubbard_correlations():
+    """Separate spin and charge correlation plots for the user guide."""
+    L = 6
+    distances = np.arange(L // 2 + 1)
+    spin_data = {}
+    charge_data = {}
+
+    for U in (0.0, 4.0, 8.0):
+        model = spinful_chain(L, U=U, periodic=True)
+        ham = model["hamiltonian"]
+        ham.eigsolve(k=1, which="SA", v0=np.ones(ham.sector.dimension))
+        psi0 = ham.eigenstate(0)
+        spins = spin_operators(model)
+        charges = charge_operators(model)
+        spin_data[U] = [
+            translational_correlation(psi0, spins, int(r)) for r in distances
+        ]
+        charge_data[U] = [
+            translational_correlation(psi0, charges, int(r)) for r in distances
+        ]
+
+    fig, ax = plt.subplots(figsize=(6.6, 4.2), constrained_layout=True)
+    for U, values in spin_data.items():
+        ax.plot(distances, values, "o-", label=fr"$U/t={U:g}$")
+    ax.axhline(0.0, linewidth=0.8)
+    ax.set_xticks(distances)
+    ax.set_xlabel(r"$r$")
+    ax.set_ylabel(r"$C_s(r)$")
+    ax.legend(frameon=True)
+    save(fig, "guide_hubbard_spin_correlations.svg")
+
+    fig, ax = plt.subplots(figsize=(6.6, 4.2), constrained_layout=True)
+    for U, values in charge_data.items():
+        ax.plot(distances, values, "o-", label=fr"$U/t={U:g}$")
+    ax.axhline(0.0, linewidth=0.8)
+    ax.set_xticks(distances)
+    ax.set_xlabel(r"$r$")
+    ax.set_ylabel(r"$C_c(r)$")
+    ax.legend(frameon=True)
+    save(fig, "guide_hubbard_charge_correlations.svg")
+
+
+def guide_hubbard_structure_factors():
+    """Separate spin and charge structure-factor plots for the user guide."""
+    L = 6
+    q_values = 2.0 * np.pi * np.arange(L) / L
+    q_over_pi = q_values / np.pi
+    spin_data = {}
+    charge_data = {}
+
+    for U in (0.0, 4.0, 8.0):
+        model = spinful_chain(L, U=U, periodic=True)
+        ham = model["hamiltonian"]
+        ham.eigsolve(k=1, which="SA", v0=np.ones(ham.sector.dimension))
+        psi0 = ham.eigenstate(0)
+        spin_data[U] = [
+            structure_factor(psi0, spin_operators(model), q) for q in q_values
+        ]
+        charge_data[U] = [
+            structure_factor(psi0, charge_operators(model), q) for q in q_values
+        ]
+
+    fig, ax = plt.subplots(figsize=(6.6, 4.2), constrained_layout=True)
+    for U, values in spin_data.items():
+        ax.plot(q_over_pi, values, "o-", label=fr"$U/t={U:g}$")
+    ax.set_xticks(q_over_pi)
+    ax.set_xlabel(r"$q/\pi$")
+    ax.set_ylabel(r"$S_s(q)$")
+    ax.legend(frameon=True)
+    save(fig, "guide_hubbard_spin_structure_factor.svg")
+
+    fig, ax = plt.subplots(figsize=(6.6, 4.2), constrained_layout=True)
+    for U, values in charge_data.items():
+        ax.plot(q_over_pi, values, "o-", label=fr"$U/t={U:g}$")
+    ax.set_xticks(q_over_pi)
+    ax.set_xlabel(r"$q/\pi$")
+    ax.set_ylabel(r"$S_c(q)$")
+    ax.legend(frameon=True)
+    save(fig, "guide_hubbard_charge_structure_factor.svg")
+
+
+def guide_bose_hubbard_observables():
+    """Condensate fraction and onsite number variance of a finite Bose-Hubbard ring."""
+    L = 6
+    N = 6
+    U_values = np.linspace(0.0, 16.0, 17)
+    condensate_fraction = []
+    number_variance = []
+
+    for U in U_values:
+        _modes, sector, b, bd, n, ham = _bose_hubbard_ring(L, N, U)
+        ham.eigsolve(k=1, which="SA", v0=np.ones(sector.dimension))
+        psi0 = ham.eigenstate(0)
+        rho = _boson_one_body_density_matrix(psi0, b, bd, L)
+        occupations = np.linalg.eigvalsh(rho)
+        condensate_fraction.append(occupations[-1] / N)
+
+        local_variances = []
+        for i in range(L):
+            mean = np.real(psi0.dag * n(i) * psi0)
+            mean_square = np.real(psi0.dag * n(i) * n(i) * psi0)
+            local_variances.append(mean_square - mean**2)
+        number_variance.append(np.mean(local_variances))
+
+    fig, ax = plt.subplots(figsize=(6.6, 4.2), constrained_layout=True)
+    ax.plot(U_values, condensate_fraction, "o-")
+    ax.set_xlabel(r"$U/J$")
+    ax.set_ylabel(r"$\lambda_{\max}/N$")
+    save(fig, "guide_bose_hubbard_condensate_fraction.svg")
+
+    fig, ax = plt.subplots(figsize=(6.6, 4.2), constrained_layout=True)
+    ax.plot(U_values, number_variance, "o-")
+    ax.set_xlabel(r"$U/J$")
+    ax.set_ylabel(r"$\Delta n^2$")
+    save(fig, "guide_bose_hubbard_number_variance.svg")
+
+
+def hubbard_finite_size_energy():
+    """Ground-state energy density of half-filled open Hubbard chains."""
+    sizes = np.asarray([4, 6, 8, 10], dtype=int)
+    U = 4.0
+    t = 1.0
+    energy_density = []
+
+    for L in sizes:
+        site = edf.DoF(int(L), name="site")
+        spin = edf.DoF(2, name="spin", labels=("up", "down"))
+        modes = edf.FermionModes(site, spin)
+        sector = (
+            edf.NParticleSector(modes, N=int(L))
+            .project_particles("spin", up=int(L // 2), down=int(L // 2))
+            .build()
+        )
+        c = edf.set_notation(edf.Annihilation, modes)
+        cd = edf.set_notation(edf.Creation, modes)
+        n = edf.set_notation(edf.Number, modes)
+
+        H = 0
+        for i in range(int(L) - 1):
+            j = i + 1
+            for sigma in (UP, DOWN):
+                hop = cd(i, sigma) * c(j, sigma)
+                H += -t * (hop + hop.dag)
+        for i in range(int(L)):
+            H += U * n(i, UP) * n(i, DOWN)
+
+        ham = edf.Hamiltonian(H, sector)
+        energies, _ = ham.eigsolve(
+            k=1,
+            which="SA",
+            tol=1e-10,
+            v0=np.ones(sector.dimension),
+        )
+        energy_density.append(float(energies[0] / (L * t)))
+
+    def lieb_wu_integrand(omega):
+        if omega == 0.0:
+            return 0.25
+        return (
+            j0(omega)
+            * j1(omega)
+            / (omega * (1.0 + np.exp(U * omega / (2.0 * t))))
+        )
+
+    e_infinite = -4.0 * quad(
+        lieb_wu_integrand,
+        0.0,
+        40.0,
+        epsabs=1e-12,
+        epsrel=1e-12,
+        limit=500,
+    )[0]
+
+    inverse_size = 1.0 / sizes.astype(float)
+    order = np.argsort(inverse_size)
+
+    fig, ax = plt.subplots(figsize=(6.6, 4.2), constrained_layout=True)
+    ax.plot(
+        inverse_size[order],
+        np.asarray(energy_density)[order],
+        "o-",
+        label="ED",
+    )
+    ax.axhline(e_infinite, linestyle="--", label="Lieb-Wu")
+    ax.set_xlim(0.0, 0.27)
+    ax.set_xlabel(r"$1/L$")
+    ax.set_ylabel(r"$E_0/(Lt)$")
+    ax.legend(frameon=True)
+    save(fig, "example_hubbard_chain_finite_size_energy.svg")
+
+
+def validation_parallel_scaling():
+    """Reference thread scaling of the fermion matrix-free executor."""
+    data = json.loads(
+        (DATA / "fermion_parallel_reference.json").read_text(encoding="utf-8")
+    )
+    threads = np.asarray([1, 2, 4, 8], dtype=int)
+
+    fig, ax = plt.subplots(figsize=(6.6, 4.2), constrained_layout=True)
+    for case in data["cases"]:
+        speedups = case["geometric_mean_speedup_vs_numba_serial"]
+        values = [speedups[str(thread)] for thread in threads]
+        ax.plot(
+            threads,
+            values,
+            "o-",
+            label=fr"$D={case['dimension']:,}$",
+        )
+    ax.axhline(1.0, linewidth=0.8, linestyle="--")
+    ax.set_xticks(threads)
+    ax.set_xlabel("threads")
+    ax.set_ylabel("speedup")
+    ax.legend(frameon=True)
+    save(fig, "validation_fermion_parallel_scaling.svg")
 
 def hubbard_matrix_sparsity():
     """Plot the sparse structure of a four-site half-filled Hubbard matrix."""
@@ -674,13 +1288,29 @@ def hubbard_matrix_sparsity():
     ax.spy(matrix, markersize=2.4)
     ax.set_xlabel("basis column")
     ax.set_ylabel("basis row")
-    ax.set_title(f"Hubbard matrix: D={matrix.shape[0]}, nnz={matrix.nnz}")
     save(fig, "hubbard_matrix_sparsity.svg")
 
 
 def main():
     """Generate every documentation figure."""
+    obsolete = (
+        "hubbard_chain_spectrum_observables.svg",
+        "hubbard_chain_correlations.svg",
+        "hubbard_chain_structure_factors.svg",
+        "extended_hubbard_competition.svg",
+        "extended_hubbard_structure_profiles.svg",
+        "spin_exchange_spectrum.svg",
+        "flux_threaded_ring.svg",
+        "bose_hubbard_dimer.svg",
+        "bose_hubbard_chain.svg",
+        "hubbard_dimer_observables.svg",
+        "boson_spin_exchange.svg",
+        "example_hubbard_chain_pair_structure.svg",
+    )
+    for name in obsolete:
+        (OUT / name).unlink(missing_ok=True)
     hubbard_dimer_observables()
+    hubbard_dimer_spectrum()
     hubbard_dimer_wavefunction()
     hubbard_chain_spectrum_observables()
     hubbard_chain_correlations()
@@ -689,8 +1319,20 @@ def main():
     extended_hubbard_structure_profiles()
     spin_exchange_spectrum()
     flux_threaded_ring()
+    bose_hubbard_dimer()
+    bose_hubbard_chain()
+    boson_spin_exchange()
     hilbert_space_growth()
     hubbard_matrix_sparsity()
+    guide_fermion_ring_current()
+    landing_hubbard_ground_state()
+    guide_hubbard_low_energy()
+    guide_hubbard_double_occupancy()
+    guide_hubbard_correlations()
+    guide_hubbard_structure_factors()
+    guide_bose_hubbard_observables()
+    hubbard_finite_size_energy()
+    validation_parallel_scaling()
 
 
 if __name__ == "__main__":

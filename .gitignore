@@ -16,6 +16,7 @@ docs/_build/
 
 # Environments and local tooling
 .venv/
+.venv*/
 venv/
 .env
 .idea/
@@ -26,11 +27,23 @@ venv/
 # Profiling and coverage
 *.prof
 .coverage
+.coverage.*
 htmlcov/
 coverage.xml
+
+# Local test reports
+tests/results/
 
 # Local benchmark output
 benchmark-results*.json
 
-# Local virtual environments
-.venv*/
+# Local run artifacts
+/*_benchmark.json
+/reproduction.log
+
+# Numba cache files (normally stored under __pycache__)
+*.nbi
+*.nbc
+
+# Generated Sphinx autosummary pages
+docs/source/**/generated/

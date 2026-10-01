@@ -1,97 +1,109 @@
 # EDinPy
 
-Exact diagonalization for finite quantum many-body systems
+Exact diagonalization for interacting fermionic and bosonic quantum systems
 
-EDinPy builds finite many-body problems directly in Fock space. The package keeps mode definitions, basis states, second-quantized operators, Hamiltonian matrices, eigenstates, and observables visible in the calculation.
+EDinPy is a Python library for exact diagonalization of finite interacting many-body systems in fermionic and bosonic Fock spaces. Hamiltonians and observables are written directly in second quantization, with support for arbitrary products and sums of creation, annihilation, number, spin, and user-constructed operators.
 
-The fermionic interface is designed around literal Fock algebra. A hopping term can be written as
+The same interface covers fixed-particle-number and symmetry-constrained sectors, many-body spectra and eigenstates, expectation values, correlation functions, structure factors, one-body density matrices, natural occupations, and transition matrix elements. Standard model terms are available through compact helpers, while the literal operator algebra remains available whenever a Hamiltonian or observable does not fit a predefined form.
 
-```python
--t * (cd(i, spin) * c(j, spin) + cd(j, spin) * c(i, spin))
+```{figure} _static/figures/landing_hubbard_ground_state.svg
+:width: 76%
+:alt: Analytic and exact-diagonalization results for the half-filled Hubbard dimer
+
+Half-filled Hubbard dimer. Solid curves show the analytic solution and open circles show EDinPy output for the ground-state energy $E_0/t$, total double occupancy $\langle D\rangle=\sum_i\langle n_{i\uparrow}n_{i\downarrow}\rangle$, and site-averaged local moment $\mu^2=\frac{1}{2}\sum_i\langle(n_{i\uparrow}-n_{i\downarrow})^2\rangle$ as functions of $U/t$.
 ```
 
-and an expectation value as
+## Second-quantized models
+
+For the half-filled Hubbard dimer,
+
+$$
+\begin{aligned}
+H ={}& -t \sum_{\sigma}
+\left(
+    c_{0\sigma}^{\dagger}c_{1\sigma}
+    + c_{1\sigma}^{\dagger}c_{0\sigma}
+\right) \\
+&+ U\left(
+    n_{0\uparrow}n_{0\downarrow}
+    + n_{1\uparrow}n_{1\downarrow}
+\right).
+\end{aligned}
+$$
+
+The same Hamiltonian can be written directly with the operator algebra:
 
 ```python
-psi.dag * O * psi
+H = (
+     -t * sum(
+              cd(0, sigma) * c(1, sigma)
+              + cd(1, sigma) * c(0, sigma)
+              for sigma in (UP, DOWN)
+              )
+     + U * (
+            n(0, UP) * n(0, DOWN)
+            + n(1, UP) * n(1, DOWN)
+            )
+     )
 ```
 
-When a Hamiltonian matrix is needed, EDinPy recognizes common operator structures and compiles them to sparse execution kernels. The symbolic expression remains the public representation of the model.
+Common model terms also have compact equivalents such as `Hopping(...) + Hubbard(...)`.
 
 ::::{grid} 2
 :::{grid-item-card} Getting started
 :link: getting_started
 :link-type: doc
-Install EDinPy, choose a particle-statistics module, and see the basic exact-diagonalization workflow.
+A complete Hubbard-dimer calculation from Hamiltonian construction to observables.
 :::
-:::{grid-item-card} Fermions
-:link: fermion/index
+:::{grid-item-card} User guide
+:link: user_guide/index
 :link-type: doc
-Modes, fixed-particle-number sectors, operator algebra, sparse Hamiltonians, eigensolvers, observables, examples, and API reference.
+Fock spaces, symmetry sectors, operator algebra, diagonalization, observables, and numerical practice.
 :::
-:::{grid-item-card} Bosons
-:link: boson/index
+:::{grid-item-card} API reference
+:link: reference/index
 :link-type: doc
-Status and scope of the bosonic interface included with EDinPy.
+Core, fermionic, and bosonic public interfaces.
 :::
-:::{grid-item-card} Validation
-:link: validation/index
+:::{grid-item-card} Examples
+:link: examples/index
 :link-type: doc
-Correctness tests, analytic checks, and reproducible performance benchmarks.
-:::
-:::{grid-item-card} Development
-:link: development/index
-:link-type: doc
-Testing, benchmarking, documentation, contribution, and release procedures.
-:::
-:::{grid-item-card} References
-:link: references
-:link-type: doc
-Scientific and numerical references used by the documentation.
+Worked fermionic and bosonic many-body calculations.
 :::
 ::::
 
-## What EDinPy is for
+{doc}`Theory and methods <theory/index>` develops the mathematical and numerical foundations. {doc}`Validation <validation/index>` collects analytic checks, finite-size tests, and benchmark evidence. Contributor material is under {doc}`Development <development/index>`, and the bibliography is collected in {doc}`References <references>`.
 
-Exact diagonalization solves the represented finite Hilbert space directly, up to the tolerances and floating-point accuracy of the numerical solver. This makes it useful for small-cluster studies, teaching, testing analytical calculations, and benchmarking approximate many-body methods.[^lin]
+## Scope of exact diagonalization
 
-The main limitation is the size of the Hilbert space. For $M$ fermionic modes at fixed particle number $N$,
+Exact diagonalization is primarily a finite-system method. The growth of the many-body Hilbert space limits the system sizes that can be treated directly, even when conserved symmetries and sparse representations reduce the numerical cost.
 
-$$
-\dim \mathcal H_N = \binom{M}{N}.
-$$
+Its main uses include finite-cluster calculations, exploratory studies, controlled reference spectra and observables, and quantitative benchmarks for approximate methods. Exact results are particularly useful for testing analytical approximations, comparing the physical accuracy of cluster and many-body methods, and validating approximations introduced by techniques designed for larger systems. Finite-size sequences can additionally be used to assess how cluster results evolve with system size.[^lin]
 
-The dimension therefore grows rapidly even before the cost of matrix construction and diagonalization is considered. Sparse matrices and iterative eigensolvers extend the useful range, but they do not change this fundamental scaling.
+## Installation
 
-## Package layout
+Install from a source checkout:
 
-EDinPy exposes fermionic and bosonic functionality through separate namespaces:
-
-```python
-from edinpy import fermion as edf
-from edinpy import boson as edb
+```bash
+git clone https://github.com/QuantumArtificer/edinpy.git
+cd edinpy
+python -m pip install -e .
 ```
 
-The fermionic API is the primary documented interface. It uses explicit mode ownership, fixed-$N$ sectors, optional particle-number projections on labeled degrees of freedom, sparse Hamiltonian construction, basis-backed eigenstates, and literal operator-state algebra.
-
-The bosonic module uses a separate API and currently has less validation and documentation coverage than the fermionic module. Read {doc}`boson/index` before starting a bosonic calculation.
-
-## Performance
-
-EDinPy uses direct constrained-basis generation for particle-resolved sectors and optimized sparse construction paths for several common number-conserving fermionic structures. These optimizations reduce avoidable basis and matrix-construction work while keeping the public API close to the Fock algebra.
-
-Performance depends on the basis dimension, matrix sparsity, operator structure, requested eigenpairs, hardware, and NumPy/SciPy build. The package therefore provides reproducible benchmark scripts instead of a single speed claim. See {doc}`validation/fermion_performance`.
+Citation information is available in `CITATION.cff` and in {doc}`References <references>`.
 
 ```{toctree}
 :maxdepth: 2
 :hidden:
 
 getting_started
-fermion/index
-boson/index
+user_guide/index
+reference/index
+examples/index
+theory/index
 validation/index
 development/index
 references
 ```
 
-[^lin]: H. Q. Lin, J. E. Gubernatis, H. Gould, and J. Tobochnik, "Exact Diagonalization Methods for Quantum Systems," *Computers in Physics* **7**, 400-407 (1993), [doi:10.1063/1.4823192](https://doi.org/10.1063/1.4823192).
+[^lin]: H. Q. Lin, J. E. Gubernatis, H. Gould, and J. Tobochnik, "Exact Diagonalization Methods for Quantum Systems," Computers in Physics 7, 400-407 (1993), [doi:10.1063/1.4823192](https://doi.org/10.1063/1.4823192).

@@ -1,14 +1,7 @@
 include LICENSE
 include README.md
-include CONTRIBUTING.md
+include CHANGELOG.md
 include CITATION.cff
 include PROVENANCE.md
-include CHANGELOG.md
-recursive-include tests *.py
-include docs/Makefile
-include docs/make.bat
-include docs/README.md
-recursive-include docs/scripts *.py
-recursive-include docs/source *.py *.rst *.md *.svg
-recursive-include examples *.py *.md
-recursive-include benchmarks *.py *.md
+
+prune tests

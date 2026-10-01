@@ -1,0 +1,38 @@
+{
+  "date": "2026-09-30",
+  "environment": {
+    "python": "3.12.9",
+    "numpy": "1.26.4",
+    "scipy": "1.15.1",
+    "numba": "0.68.0",
+    "numba_max_threads": 8,
+    "edinpy": "0.3.0.dev0"
+  },
+  "operator_families": 8,
+  "repeat": 3,
+  "process_isolation": "per-family",
+  "cases": [
+    {
+      "modes": 20,
+      "particles": 10,
+      "dimension": 184756,
+      "geometric_mean_speedup_vs_numba_serial": {
+        "1": 0.8944170896306959,
+        "2": 1.195719425245057,
+        "4": 1.4486217355928814,
+        "8": 1.0700455089820984
+      }
+    },
+    {
+      "modes": 24,
+      "particles": 12,
+      "dimension": 2704156,
+      "geometric_mean_speedup_vs_numba_serial": {
+        "1": 1.01505999348001,
+        "2": 1.8783777398856465,
+        "4": 2.862676803161086,
+        "8": 3.3713144361492438
+      }
+    }
+  ]
+}

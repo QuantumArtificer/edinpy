@@ -1,20 +1,16 @@
 # Releasing
 
-This page describes the release checks for maintainers.
-
 ## 1. Start from a clean checkout
 
-Create a fresh environment and install all development dependencies:
+Install the development dependencies in the checkout used for release validation:
 
 ```bash
-python -m pip install -e ".[test,docs,dev]"
+python -m pip install -e ".[test,docs,dev,numba]"
 ```
 
-Check that the version agrees in `pyproject.toml`, `src/edinpy/__init__.py`, and `CITATION.cff`.
+The package version is defined in `src/edinpy/_version.py`. Release metadata in `CITATION.cff` and `CHANGELOG.md` should describe the same release.
 
-## 2. Run the release checks
-
-Run the tests and style checks:
+## 2. Run source checks
 
 ```bash
 python -m pytest
@@ -24,7 +20,7 @@ python -m ruff check src tests examples benchmarks docs/scripts
 Run every example:
 
 ```bash
-for example in examples/*.py; do
+for example in examples/fermion/*.py examples/boson/*.py; do
     python "$example"
 done
 ```
@@ -37,30 +33,35 @@ python -m sphinx -W --keep-going -b html docs/source docs/_build/html
 
 ## 3. Build the distributions
 
-Remove old build products, then build a source distribution and wheel:
-
 ```bash
 rm -rf build dist src/*.egg-info
 python -m build
 python -m twine check dist/*
 ```
 
-Inspect the archive contents before upload. The source distribution should contain the tests, examples, documentation sources, benchmarks, citation metadata, and license. Generated documentation, profiler output, caches, and local environments should not be present.
+Inspect the wheel and source distribution before upload. Runtime source, package metadata, citation metadata, and the license belong in the distributions. Development-only tests, benchmarks, documentation sources, examples, generated documentation, caches, and local environments are excluded from the published archives.
 
-## 4. Test the wheel in a clean environment
+## 4. Test the wheel
 
-Create a separate environment and install the wheel from `dist/`. Import EDinPy, run the test suite against the installed package if practical, and run at least one example.
+Install the wheel into a temporary target directory so the smoke test does not import the editable source tree:
 
-This step catches packaging errors that an editable install can hide.
+```bash
+rm -rf /tmp/edinpy-wheel-test
+python -m pip install --no-deps --target /tmp/edinpy-wheel-test dist/*.whl
+cd /tmp
+PYTHONPATH=/tmp/edinpy-wheel-test python -c "import edinpy; print(edinpy.__version__); print(edinpy.__file__)"
+```
+
+The reported module path should point inside `/tmp/edinpy-wheel-test`. Run a small fermionic and bosonic calculation with the same `PYTHONPATH` to verify the installed wheel.
 
 ## 5. Tag and publish
 
 Commit the release state on `main`, create an annotated version tag such as `vX.Y.Z`, and create a GitHub release from that tag.
 
-Upload the exact files from `dist/` to PyPI. PyPI Trusted Publishing is preferred over long-lived API tokens when the repository has been configured for it.
+Upload the exact files from `dist/` to PyPI. PyPI Trusted Publishing is preferred when the repository is configured for it.
 
-The documentation workflow deploys the `main` documentation to GitHub Pages. Before the first deployment, set **Settings > Pages > Build and deployment > Source** to **GitHub Actions** in the repository. A release should leave `main` at the same documented API as the published package.
+The documentation workflow deploys the `main` documentation to GitHub Pages.
 
 ## 6. Archive the release
 
-Archive the GitHub release in Zenodo or another long-term research-software archive. Add the release DOI to the citation metadata once it exists. Published work should cite the archived version actually used for the calculation.
+Archive the GitHub release in Zenodo or another long-term research-software archive. Add the release DOI to the citation metadata once it exists. Published work should cite the archived version used for the calculation.

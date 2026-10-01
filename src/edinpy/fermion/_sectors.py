@@ -384,7 +384,7 @@ def _basis_from_group_occupations(n_modes, N, groups, occupations):
     groups = tuple(tuple(group) for group in groups)
     occupations = tuple(tuple(int(value) for value in pattern) for pattern in occupations)
     if not occupations:
-        raise ValueError("Particle projections are mutually incompatible.")
+        raise ValueError("Particle-number constraints are mutually incompatible.")
 
     capacities = tuple(len(group) for group in groups)
     dimensions = [
@@ -454,8 +454,9 @@ class NParticleSector:
     Notes
     -----
     Construction records the sector specification but does not generate the
-    many-body basis. Particle numbers associated with named degrees of
-    freedom can be fixed with :meth:`project_particles` before :meth:`build`
+    many-body basis. Additional particle-number constraints associated with
+    named degrees of freedom can be imposed with :meth:`project_particles`
+    before :meth:`build`
     is called.
     """
 
@@ -513,7 +514,7 @@ class NParticleSector:
                 .build()
             )
 
-        Multiple projections are solved jointly rather than applied
+        Multiple constraints are solved jointly rather than applied
         sequentially::
 
             sector = (
@@ -526,12 +527,12 @@ class NParticleSector:
 
         Notes
         -----
-        The projected basis is generated directly at :meth:`build` time. The
+        The constrained basis is generated directly at :meth:`build` time. The
         complete fixed-``N`` basis is not constructed and filtered.
         """
         if self.is_built:
             raise RuntimeError(
-                "Particle projections must be specified before sector.build()."
+                "Particle-number constraints must be specified before sector.build()."
             )
         if not isinstance(dof_name, str):
             raise TypeError("'dof_name' must be a string.")
@@ -568,10 +569,10 @@ class NParticleSector:
                     f"Expected one of: {allowed}."
                 )
             if not isinstance(number, Integral):
-                raise TypeError("Projected particle numbers must be integers.")
+                raise TypeError("Constrained particle numbers must be integers.")
             number = int(number)
             if number < 0:
-                raise ValueError("Projected particle numbers must be non-negative.")
+                raise ValueError("Constrained particle numbers must be non-negative.")
             if number > capacity:
                 raise ValueError(
                     f"Particle number {number} exceeds the {capacity} modes "
@@ -586,7 +587,7 @@ class NParticleSector:
         specified = sum(updated.values())
         if specified > self.N:
             raise ValueError(
-                "Projected particle numbers exceed the sector particle number N."
+                "Constrained particle numbers exceed the sector particle number N."
             )
 
         unspecified_count = dof.size - len(updated)

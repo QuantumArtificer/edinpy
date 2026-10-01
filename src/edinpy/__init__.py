@@ -1,8 +1,6 @@
 """EDinPy: exact diagonalization for discrete finite many-body systems."""
 
-from . import fermion
-from .boson import boson
-
-__version__ = "0.3.0.dev0"
+from . import boson, fermion
+from ._version import __version__
 
 __all__ = ["fermion", "boson", "__version__"]

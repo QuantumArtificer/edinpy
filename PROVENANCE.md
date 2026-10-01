@@ -4,9 +4,9 @@ This file records published algorithms and external numerical libraries that are
 
 ## Fermionic fixed-particle-number basis
 
-EDinPy represents fermionic occupation configurations as integer bit strings. A fixed-$N$ basis is enumerated with the standard next-integer-with-the-same-popcount construction commonly associated with Gosper's hack.
+EDinPy represents fermionic occupation configurations as integer bit strings. A fixed-$N$ basis is enumerated with the standard next-integer-with-the-same-popcount construction commonly associated with Gosper's hack. Complete fixed-$N$ compiled execution maps a resulting bit string directly to its basis index with the combinatorial number system, using binomial contributions from the occupied bit positions.
 
-The method is described in HAKMEM Item 175 and in later references on combinatorial bit operations:
+These constructions are described in HAKMEM Item 175 and in later references on combinatorial bit operations and combinations:
 
 1. M. Beeler, R. W. Gosper, and R. Schroeppel, *HAKMEM*, MIT Artificial Intelligence Laboratory Memo AIM-239, Item 175 (1972).
 2. D. E. Knuth, *The Art of Computer Programming*, Vol. 4A, Sec. 7.1.3, Addison-Wesley (2011).

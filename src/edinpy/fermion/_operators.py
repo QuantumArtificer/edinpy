@@ -2,7 +2,19 @@
 
 from __future__ import annotations
 
-from ._algebra import Annihilation, Creation, Number, OperatorProduct, OperatorSum
+from edinpy._core._operator_builders import (
+    conjugate as _conjugate,
+    density_density as _density_density,
+    heisenberg_exchange as _heisenberg_exchange,
+    hopping as _hopping,
+    onsite as _onsite,
+    spin_minus as _spin_minus,
+    spin_plus as _spin_plus,
+    spin_x as _spin_x,
+    spin_y as _spin_y,
+    spin_z as _spin_z,
+)
+from ._algebra import Annihilation, Creation, Number
 
 
 def Hopping(i, j, t, modes):
@@ -26,11 +38,7 @@ def Hopping(i, j, t, modes):
         Literal symbolic expression
         :math:`t c_i^\dagger c_j+t^* c_j^\dagger c_i`.
     """
-    t_conj = t.conjugate() if hasattr(t, "conjugate") else t
-    return OperatorSum((
-        t * Creation(i, modes=modes) * Annihilation(j, modes=modes),
-        t_conj * Creation(j, modes=modes) * Annihilation(i, modes=modes),
-    ))
+    return _hopping(Creation, Annihilation, i, j, t, modes)
 
 
 def Onsite(i, epsilon, modes):
@@ -50,7 +58,7 @@ def Onsite(i, epsilon, modes):
     OperatorProduct
         Literal symbolic expression :math:`\epsilon_i n_i`.
     """
-    return epsilon * Number(i, modes=modes)
+    return _onsite(Number, i, epsilon, modes)
 
 
 def DensityDensity(i, j, V, modes):
@@ -70,7 +78,7 @@ def DensityDensity(i, j, V, modes):
     OperatorProduct
         Literal symbolic density-density interaction.
     """
-    return V * Number(i, modes=modes) * Number(j, modes=modes)
+    return _density_density(Number, i, j, V, modes)
 
 
 def Hubbard(up, down, U, modes):
@@ -108,7 +116,7 @@ def SpinPlus(up, down, modes):
     OperatorProduct
         Literal symbolic spin-raising operator.
     """
-    return Creation(up, modes=modes) * Annihilation(down, modes=modes)
+    return _spin_plus(Creation, Annihilation, up, down, modes)
 
 
 def SpinMinus(up, down, modes):
@@ -126,7 +134,7 @@ def SpinMinus(up, down, modes):
     OperatorProduct
         Literal symbolic spin-lowering operator.
     """
-    return Creation(down, modes=modes) * Annihilation(up, modes=modes)
+    return _spin_minus(Creation, Annihilation, up, down, modes)
 
 
 def SpinX(up, down, modes):
@@ -144,7 +152,7 @@ def SpinX(up, down, modes):
     OperatorSum
         Literal symbolic :math:`S^x` operator.
     """
-    return 0.5 * (SpinPlus(up, down, modes) + SpinMinus(up, down, modes))
+    return _spin_x(SpinPlus, SpinMinus, up, down, modes)
 
 
 def SpinY(up, down, modes):
@@ -162,7 +170,7 @@ def SpinY(up, down, modes):
     OperatorSum
         Literal symbolic :math:`S^y` operator.
     """
-    return (-0.5j) * (SpinPlus(up, down, modes) - SpinMinus(up, down, modes))
+    return _spin_y(SpinPlus, SpinMinus, up, down, modes)
 
 
 def SpinZ(up, down, modes):
@@ -180,9 +188,7 @@ def SpinZ(up, down, modes):
     OperatorSum
         Literal symbolic :math:`S^z` operator.
     """
-    return 0.5 * (
-        Number(up, modes=modes) - Number(down, modes=modes)
-    )
+    return _spin_z(Number, up, down, modes)
 
 
 def HeisenbergExchange(up_i, down_i, up_j, down_j, J, modes):
@@ -205,14 +211,17 @@ def HeisenbergExchange(up_i, down_i, up_j, down_j, J, modes):
         Literal symbolic expression equivalent to
         :math:`J[S_i^zS_j^z+(S_i^+S_j^-+S_i^-S_j^+)/2]`.
     """
-    transverse = 0.5 * (
-        SpinPlus(up_i, down_i, modes) * SpinMinus(up_j, down_j, modes)
-        + SpinMinus(up_i, down_i, modes) * SpinPlus(up_j, down_j, modes)
+    return _heisenberg_exchange(
+        SpinPlus,
+        SpinMinus,
+        SpinZ,
+        up_i,
+        down_i,
+        up_j,
+        down_j,
+        J,
+        modes,
     )
-    longitudinal = SpinZ(up_i, down_i, modes) * SpinZ(
-        up_j, down_j, modes
-    )
-    return J * (longitudinal + transverse)
 
 
 def PairHopping(i_up, i_down, j_up, j_down, J, modes):
@@ -241,6 +250,4 @@ def PairHopping(i_up, i_down, j_up, j_down, J, modes):
         * Annihilation(j_down, modes=modes)
         * Annihilation(j_up, modes=modes)
     )
-    reverse = forward.dag
-    J_conj = J.conjugate() if hasattr(J, "conjugate") else J
-    return J * forward + J_conj * reverse
+    return J * forward + _conjugate(J) * forward.dag

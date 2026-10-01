@@ -8,6 +8,10 @@ retain the generic symbolic fallback.
 from __future__ import annotations
 
 from bisect import bisect_left
+from functools import lru_cache
+from math import comb
+
+import numpy as np
 
 from ._compiler import lower_operator
 from ._ir import (
@@ -24,6 +28,78 @@ from ._basis import (
     NullState,
     StateSum,
 )
+
+
+_DEFAULT_MATVEC_BLOCK_SIZE = 32768
+
+
+@lru_cache(maxsize=None)
+def _complete_rank_tables(
+    n_modes: int,
+    particles: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Build bytewise combinadic lookup tables for a complete fixed-N basis.
+
+    Parameters
+    ----------
+    n_modes : int
+        Number of fermionic modes represented by the occupation word. The
+        Numba executor uses these tables only for native ``uint64`` bases.
+    particles : int
+        Fixed particle number of the complete basis. This determines the
+        combinadic order carried from one byte of the occupation word to the
+        next.
+
+    Returns
+    -------
+    rank_contributions : numpy.ndarray
+        Integer lookup table whose entries give the combinadic rank
+        contribution of each possible occupation byte at each byte position
+        and incoming particle order.
+    byte_popcounts : numpy.ndarray
+        Population count for every possible byte value. The ranker uses these
+        counts to advance the particle order between adjacent bytes.
+
+    Notes
+    -----
+    Eight-bit chunks keep the table small while replacing per-bit combinadic
+    arithmetic with a handful of cache-friendly lookups. The tables are
+    immutable and memoized by ``(n_modes, particles)``.
+    """
+    n_modes = int(n_modes)
+    particles = int(particles)
+    chunk_bits = 8
+    table_size = 1 << chunk_bits
+    n_chunks = (n_modes + chunk_bits - 1) // chunk_bits
+
+    contributions = np.zeros(
+        (n_chunks, particles + 2, table_size),
+        dtype=np.int64,
+    )
+    popcounts = np.fromiter(
+        (value.bit_count() for value in range(table_size)),
+        dtype=np.uint8,
+        count=table_size,
+    )
+
+    for chunk_index in range(n_chunks):
+        base_position = chunk_bits * chunk_index
+        for starting_order in range(particles, 0, -1):
+            row = contributions[chunk_index, starting_order]
+            next_row = contributions[chunk_index, starting_order + 1]
+            for chunk_value in range(1, table_size):
+                lowest = chunk_value & -chunk_value
+                bit = lowest.bit_length() - 1
+                rest = chunk_value ^ lowest
+                position = base_position + bit
+                contribution = (
+                    comb(position, starting_order) if position < n_modes else 0
+                )
+                row[chunk_value] = contribution + next_row[rest]
+
+    contributions.setflags(write=False)
+    popcounts.setflags(write=False)
+    return contributions, popcounts
 
 
 def _group_hopping_kernels(kernels):
@@ -1465,6 +1541,332 @@ class CompiledOperator:
             )
 
         return output
+
+
+    @staticmethod
+    def _uint64_parity(values):
+        """Return parity bits for a ``uint64`` NumPy array."""
+        values = np.asarray(values, dtype=np.uint64).copy()
+        values ^= values >> np.uint64(32)
+        values ^= values >> np.uint64(16)
+        values ^= values >> np.uint64(8)
+        values ^= values >> np.uint64(4)
+        values ^= values >> np.uint64(2)
+        values ^= values >> np.uint64(1)
+        return values & np.uint64(1)
+
+    @staticmethod
+    def _validate_matvec_input(vector, dimension):
+        """Return one-dimensional numerical input for matrix-free action."""
+        vector = np.asarray(vector)
+        if vector.ndim == 2 and vector.shape == (dimension, 1):
+            vector = vector[:, 0]
+        if vector.ndim != 1 or vector.shape[0] != dimension:
+            raise ValueError(
+                "Matrix-free input vector length must equal basis.dimension."
+            )
+        if not np.issubdtype(vector.dtype, np.number):
+            raise TypeError("Matrix-free input vector must contain numerical values.")
+        return vector
+
+    @staticmethod
+    def _matvec_block_size(block_size, dimension):
+        """Return a bounded native-word matrix-free execution block size."""
+        if block_size is None:
+            block_size = _DEFAULT_MATVEC_BLOCK_SIZE
+        try:
+            block_size = int(block_size)
+        except (TypeError, ValueError) as exc:
+            raise TypeError("Matrix-free block size must be an integer.") from exc
+        if block_size <= 0:
+            raise ValueError("Matrix-free block size must be positive.")
+        return min(block_size, max(int(dimension), 1))
+
+    def _matvec_lowered_uint64(
+        self,
+        basis,
+        vector,
+        *,
+        block_size=None,
+    ):
+        """Apply lowered native-word kernels in bounded source-state blocks.
+
+        The NumPy executor processes contiguous source-state blocks so
+        temporary transition arrays stay bounded as Hilbert-space dimension
+        grows. Destination states are mapped back to basis rows with vectorized
+        ``searchsorted``; projected bases additionally verify that each
+        candidate destination is present.
+        """
+        states = np.asarray(basis._execution_states(), dtype=np.uint64)
+        dimension = states.size
+        dtype = np.result_type(vector.dtype, self.data_dtype)
+        result = np.zeros(dimension, dtype=dtype)
+
+        if dimension == 0:
+            return result
+
+        block_size = self._matvec_block_size(block_size, dimension)
+        complete_basis = bool(getattr(basis, "is_complete", False))
+        diagonal_scratch = (
+            np.empty(block_size, dtype=self.data_dtype)
+            if self._number_kernels
+            else None
+        )
+
+        for start in range(0, dimension, block_size):
+            stop = min(start + block_size, dimension)
+            block_states = states[start:stop]
+            block_vector = vector[start:stop]
+            block_dimension = stop - start
+
+            if self._number_kernels:
+                diagonal = diagonal_scratch[:block_dimension]
+                diagonal.fill(0)
+                for kernel in self._number_kernels:
+                    mask = np.uint64(kernel.mask)
+                    active = (block_states & mask) == mask
+                    if np.any(active):
+                        diagonal[active] += self._coerce_coefficient(
+                            kernel.coefficient
+                        )
+                result[start:stop] += diagonal * block_vector
+
+            def retained_rows(local_columns, final_states):
+                rows = np.searchsorted(states, final_states)
+                if complete_basis:
+                    return local_columns, rows
+
+                present = rows < dimension
+                if np.any(present):
+                    positions = np.flatnonzero(present)
+                    present[positions] = (
+                        states[rows[positions]] == final_states[positions]
+                    )
+                return local_columns[present], rows[present]
+
+            for kernel in self._hopping_kernels:
+                transition_mask = np.uint64(kernel.transition_mask)
+                occupation = block_states & transition_mask
+
+                directions = (
+                    (
+                        np.uint64(kernel.low_bit),
+                        kernel.high_from_low,
+                    ),
+                    (
+                        np.uint64(kernel.high_bit),
+                        kernel.low_from_high,
+                    ),
+                )
+                for occupied_pattern, coefficient in directions:
+                    if coefficient == 0:
+                        continue
+                    local_columns = np.flatnonzero(
+                        occupation == occupied_pattern
+                    )
+                    if local_columns.size == 0:
+                        continue
+                    source_states = block_states[local_columns]
+                    final_states = source_states ^ transition_mask
+                    kept_local, rows = retained_rows(
+                        local_columns,
+                        final_states,
+                    )
+                    if rows.size == 0:
+                        continue
+
+                    source_columns = start + kept_local
+                    amplitude = self._coerce_coefficient(coefficient)
+                    values = vector[source_columns] * amplitude
+                    if kernel.parity_mask:
+                        parity = self._uint64_parity(
+                            states[source_columns]
+                            & np.uint64(kernel.parity_mask)
+                        )
+                        if np.any(parity):
+                            values = values.copy()
+                            values[parity != 0] *= -1
+                    result[rows] += values
+
+            for kernel in self._monomial_kernels:
+                annihilated = (
+                    kernel.transition_mask & kernel.required_occupied_mask
+                ).bit_count()
+                created = (
+                    kernel.transition_mask & kernel.required_empty_mask
+                ).bit_count()
+                if created != annihilated:
+                    continue
+
+                occupied = np.uint64(kernel.required_occupied_mask)
+                empty = np.uint64(kernel.required_empty_mask)
+                active = (
+                    ((block_states & occupied) == occupied)
+                    & ((block_states & empty) == 0)
+                )
+                local_columns = np.flatnonzero(active)
+                if local_columns.size == 0:
+                    continue
+
+                source_states = block_states[local_columns]
+                final_states = (
+                    source_states ^ np.uint64(kernel.transition_mask)
+                )
+                kept_local, rows = retained_rows(
+                    local_columns,
+                    final_states,
+                )
+                if rows.size == 0:
+                    continue
+
+                source_columns = start + kept_local
+                values = vector[source_columns] * self._coerce_coefficient(
+                    kernel.coefficient
+                )
+                if kernel.parity_mask:
+                    parity = self._uint64_parity(
+                        states[source_columns]
+                        & np.uint64(kernel.parity_mask)
+                    )
+                    if np.any(parity):
+                        values = values.copy()
+                        values[parity != 0] *= -1
+                result[rows] += values
+
+        return result
+
+    def _matvec_lowered_scalar(self, basis, vector):
+        """Apply lowered kernels through the basis rank/state interface.
+
+        This path keeps complete bases above 64 modes implicit: source states
+        are obtained by combinadic unranking and destinations by combinadic
+        ranking rather than by materializing an arbitrary-width Python-int
+        tuple.
+        """
+        dimension = basis.dimension
+        dtype = np.result_type(vector.dtype, self.data_dtype)
+        result = np.zeros(dimension, dtype=dtype)
+
+        for column, input_amplitude in enumerate(vector):
+            if input_amplitude == 0:
+                continue
+            state = basis.state_at(column)
+
+            diagonal = 0.0 if self._real_valued else 0.0j
+            for kernel in self._number_kernels:
+                if state & kernel.mask == kernel.mask:
+                    diagonal += kernel.coefficient
+            if diagonal != 0:
+                result[column] += self._coerce_coefficient(diagonal) * input_amplitude
+
+            for kernel in self._hopping_kernels:
+                occupation = state & kernel.transition_mask
+                if occupation == kernel.low_bit:
+                    coefficient = kernel.high_from_low
+                elif occupation == kernel.high_bit:
+                    coefficient = kernel.low_from_high
+                else:
+                    continue
+                if coefficient == 0:
+                    continue
+
+                final_state = state ^ kernel.transition_mask
+                try:
+                    row = basis.index(final_state)
+                except ValueError:
+                    continue
+                parity = (state & kernel.parity_mask).bit_count() & 1
+                amplitude = self._coerce_coefficient(coefficient) * input_amplitude
+                result[row] += -amplitude if parity else amplitude
+
+            for kernel in self._monomial_kernels:
+                annihilated = (
+                    kernel.transition_mask & kernel.required_occupied_mask
+                ).bit_count()
+                created = (
+                    kernel.transition_mask & kernel.required_empty_mask
+                ).bit_count()
+                if created != annihilated:
+                    continue
+                if (
+                    state & kernel.required_occupied_mask
+                    != kernel.required_occupied_mask
+                ):
+                    continue
+                if state & kernel.required_empty_mask:
+                    continue
+
+                final_state = state ^ kernel.transition_mask
+                try:
+                    row = basis.index(final_state)
+                except ValueError:
+                    continue
+                parity = (state & kernel.parity_mask).bit_count() & 1
+                amplitude = (
+                    self._coerce_coefficient(kernel.coefficient) * input_amplitude
+                )
+                result[row] += -amplitude if parity else amplitude
+
+        return result
+
+    def _matvec_literal_fallback(self, basis, n_modes, vector):
+        """Apply operators containing generic symbolic fallback terms."""
+        dimension = basis.dimension
+        dtype = np.result_type(vector.dtype, self.data_dtype)
+        result = np.zeros(dimension, dtype=dtype)
+
+        for column, coefficient in enumerate(vector):
+            if coefficient == 0:
+                continue
+            ket = FockState(
+                basis.state_at(column),
+                amp=coefficient,
+                n_modes=n_modes,
+                index=column,
+            )
+            output = self.apply(ket)
+            for final_state, amplitude in output.items():
+                try:
+                    row = basis.index(final_state)
+                except ValueError:
+                    continue
+                if self._real_valued:
+                    amplitude = complex(amplitude).real
+                result[row] += amplitude
+        return result
+
+    def matvec(self, basis, n_modes, vector):
+        """Apply the compiled operator without materializing a sparse matrix.
+
+        Parameters
+        ----------
+        basis : FockBasis-like
+            Built basis defining the row and column ordering of the projected
+            Hilbert space.
+        n_modes : int
+            Number of fermionic modes represented by each basis state.
+        vector : array_like
+            One-dimensional state vector with length ``basis.dimension``.
+
+        Returns
+        -------
+        numpy.ndarray
+            Matrix-free Hamiltonian action in the same basis ordering.
+
+        Notes
+        -----
+        Fully lowered bases with at most 64 modes use the native-word NumPy
+        executor. Wider complete bases use scalar combinadic indexing, and
+        operators containing generic symbolic kernels use the literal fallback.
+        """
+        dimension = basis.dimension
+        vector = self._validate_matvec_input(vector, dimension)
+
+        if not self.fully_lowered:
+            return self._matvec_literal_fallback(basis, n_modes, vector)
+        if int(n_modes) <= 64:
+            return self._matvec_lowered_uint64(basis, vector)
+        return self._matvec_lowered_scalar(basis, vector)
 
     @property
     def stats(self):

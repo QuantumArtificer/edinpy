@@ -1,14 +1,12 @@
-# Validation and benchmarks
+# Validation
 
-Correctness and performance are tested separately. A fast matrix builder is useful only if it reproduces the intended fermionic algebra, while a correct small-system calculation does not by itself establish practical scaling.
+Numerical validation is organized around independent checks of the algebra, basis construction, Hamiltonian action, and eigensolution. Analytic few-body models test several layers at once, while direct comparisons between sparse and matrix-free actions test numerical representations without relying on a particular physical spectrum.
 
-The fermionic validation suite covers canonical anticommutation relations, fixed-$N$ basis construction, symbolic operator action, sparse matrix construction, eigensolvers, basis-backed eigenstates, observables, and analytic small-system results.
-
-The bosonic module does not yet have the same validation coverage. Fermionic test results should not be assumed to apply to the older bosonic implementation.
+Performance measurements are kept separate from correctness because absolute timings and memory usage depend on the machine, thread configuration, optional compiled execution, and the physical workload.
 
 ```{toctree}
-:maxdepth: 1
+:maxdepth: 2
 
-fermion_correctness
-fermion_performance
+correctness
+performance
 ```

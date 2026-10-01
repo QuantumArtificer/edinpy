@@ -6,6 +6,7 @@ These pages describe the checks used before changes are merged or released.
 :maxdepth: 1
 
 contributing
+documentation
 testing
 benchmarking
 releasing

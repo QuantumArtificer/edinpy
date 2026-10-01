@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "edinpy"
-version = "0.3.0.dev0"
+dynamic = ["version"]
 description = "Exact diagonalization for finite quantum many-body systems"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -17,6 +17,7 @@ keywords = [
   "exact diagonalization",
   "many-body physics",
   "fermions",
+  "bosons",
   "quantum lattice models",
   "scientific computing",
 ]
@@ -39,6 +40,9 @@ dependencies = [
 [project.optional-dependencies]
 test = [
   "pytest>=8",
+]
+numba = [
+  "numba>=0.60",
 ]
 docs = [
   "sphinx>=7",
@@ -63,6 +67,9 @@ Contributing = "https://quantumartificer.github.io/edinpy/development/contributi
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.dynamic]
+version = {attr = "edinpy._version.__version__"}
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

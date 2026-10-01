@@ -1,49 +1,94 @@
 # Benchmarks
 
-The benchmark script measures sparse Hamiltonian construction for several common fermionic operator families. It is intended for regression testing and local comparisons, not as a hardware-independent performance claim.
+The benchmark scripts measure stable EDinPy behaviors: basis storage, operator
+application, matrix-free solving, solver memory, and execution backends. They
+write optional JSON output to `benchmarks/results/`, which is intentionally
+ignored by Git.
 
-Run it from an installed development checkout:
+Benchmarks are not part of the unit-test suite. Unit tests check numerical
+correctness and API behavior; benchmarks are for explicit performance and
+memory measurements on a chosen machine.
 
-```bash
-python benchmarks/profile_operator_families.py
-```
+## Fermion execution
 
-A smaller run is useful while developing:
+`profile_fermion_execution.py` compares the public matrix-free fermion
+executors across representative operator families:
 
-```bash
-python benchmarks/profile_operator_families.py \
-    --length 12 --particles 6 --repeat 3
-```
+- diagonal onsite and density interactions;
+- local and long-range hopping;
+- dense one-body hopping;
+- an extended-Hubbard workload;
+- exchange and pair hopping;
+- general number-conserving quartic terms;
+- complex hopping.
 
-Machine-readable results can be saved with `--json`:
-
-```bash
-python benchmarks/profile_operator_families.py \
-    --json benchmark-results.json
-```
-
-## What is measured
-
-For each operator family the script reports:
-
-- fixed-particle-number basis construction time
-- symbolic expression construction time in the JSON output
-- Hamiltonian compilation time
-- median sparse matrix construction time across repeated runs
-- matrix dimension and number of nonzero entries
-
-The default families cover nearest-neighbor hopping, density-density interactions, quartic number-conserving monomials, and a mixed Hamiltonian.
-
-## Comparing runs
-
-Compare timings only when the model, particle sector, Python version, NumPy and SciPy versions, and hardware are comparable. Exact diagonalization costs change rapidly with Hilbert-space dimension and matrix sparsity. A timing from one model or machine should not be treated as a general speed estimate.
-
-For profiling, use Python's standard profiler on the same entry point, for example:
+Each family runs in a fresh process. The first matrix-vector product is treated
+as warm-up and excluded from the steady-state median. Every measured result is
+checked against the NumPy executor after timing.
 
 ```bash
-python -m cProfile -o matrix.prof \
-    benchmarks/profile_operator_families.py \
-    --length 16 --particles 8 --families mixed --repeat 1
+python benchmarks/profile_fermion_execution.py \
+  --modes 20 \
+  --particles 10 \
+  --executions numpy numba-serial numba-parallel \
+  --threads 1 2 4 8 \
+  --repeat 3 \
+  --json fermion_execution_20_10.json
 ```
 
-Profiler output is local development data and is excluded from the repository.
+`--families` selects a subset of workloads. `--threads` applies only to
+`numba-parallel`; values above Numba's configured maximum are skipped.
+
+## Matrix-free solvers
+
+`profile_matrix_free.py` compares explicit sparse-matrix and matrix-free solver
+workflows. `profile_solver_memory.py` reports solver timing, Hamiltonian
+application timing, and measured/estimated memory as the ARPACK subspace size
+changes. Pure memory-planning behavior is covered by the unit tests rather than
+a separate benchmark script.
+
+Examples:
+
+```bash
+python benchmarks/profile_matrix_free.py
+python benchmarks/profile_solver_memory.py --execution numba-serial
+```
+
+## Basis storage
+
+`profile_basis_storage.py` measures persistent basis storage and construction
+cost for representative sectors.
+
+```bash
+python benchmarks/profile_basis_storage.py
+```
+
+## Boson execution
+
+`profile_boson_execution.py` compares the public matrix-free boson executors
+across diagonal, one-boson hopping, pair transfer, quartic, complex-hopping,
+and mixed workloads. Complete fixed-particle sectors are measured by default;
+`--projected` selects a two-species symmetry-constrained sector with fixed species populations.
+
+```bash
+python benchmarks/profile_boson_execution.py \
+  --modes 14 \
+  --particles 7 \
+  --executions numpy numba-serial numba-parallel \
+  --threads 1 2 4 8 \
+  --repeat 3 \
+  --json boson_execution_14_7.json
+
+python benchmarks/profile_boson_execution.py \
+  --modes 14 \
+  --particles 7 \
+  --projected \
+  --species-a 3 \
+  --executions numpy numba-serial numba-parallel \
+  --threads 1 2 4 8 \
+  --repeat 3 \
+  --json boson_execution_projected_14_7.json
+```
+
+`profile_boson_sector_generation.py` remains separate because it measures basis
+construction of complete and symmetry-constrained sectors rather than Hamiltonian execution.
