@@ -1,6 +1,6 @@
 # EDinPy
 
-[![CI](https://github.com/QuantumArtificer/edinpy/actions/workflows/ci.yml/badge.svg)](https://github.com/QuantumArtificer/edinpy/actions/workflows/ci.yml)
+[![CI](https://github.com/QuantumArtificer/edinpy/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/QuantumArtificer/edinpy/actions/workflows/ci.yml?query=branch%3Amain)
 [![Docs](https://github.com/QuantumArtificer/edinpy/actions/workflows/docs.yml/badge.svg)](https://quantumartificer.github.io/edinpy/)
 [![Python](https://img.shields.io/badge/python-%3E%3D3.10-blue.svg)](https://www.python.org/)
 [![License](https://img.shields.io/github/license/QuantumArtificer/edinpy.svg)](LICENSE)
