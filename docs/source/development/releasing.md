@@ -1,67 +1,84 @@
 # Releasing
 
-## 1. Start from a clean checkout
+EDinPy releases are published from Git tags by GitHub Actions. Do not upload
+distribution files to PyPI or GitHub Releases manually.
 
-Install the development dependencies in the checkout used for release validation:
+## 1. One-time PyPI setup
 
-```bash
-python -m pip install -e ".[test,docs,dev,numba]"
-```
+Configure a PyPI Trusted Publisher for this repository:
 
-The package version is defined in `src/edinpy/_version.py`. Release metadata in `CITATION.cff` and `CHANGELOG.md` should describe the same release.
+- PyPI project: `edinpy`
+- GitHub owner: `QuantumArtificer`
+- GitHub repository: `edinpy`
+- Workflow: `release.yml`
+- Environment: `pypi`
 
-## 2. Run source checks
+For the first release, use a pending Trusted Publisher if the `edinpy` project
+does not yet exist on PyPI. No PyPI API token is required by the release
+workflow.
+
+## 2. Prepare the release on `main`
+
+Update the release version in `src/edinpy/_version.py` and keep
+`CITATION.cff` and `CHANGELOG.md` consistent with that version.
+
+Before tagging, the normal CI and documentation workflows on `main` should be
+green.
+
+Local validation may be run with:
 
 ```bash
 python -m pytest
 python -m ruff check src tests examples benchmarks docs/scripts
-```
 
-Run every example:
-
-```bash
 for example in examples/fermion/*.py examples/boson/*.py; do
     python "$example"
 done
-```
 
-Build the documentation with warnings treated as errors:
-
-```bash
 python -m sphinx -W --keep-going -b html docs/source docs/_build/html
 ```
 
-## 3. Build the distributions
+Commit the final release state to `main` before creating the tag.
+
+## 3. Tag the release
+
+Create an annotated tag whose version matches the package metadata:
 
 ```bash
-rm -rf build dist src/*.egg-info
-python -m build
-python -m twine check dist/*
+git tag -a vX.Y.Z -m "EDinPy X.Y.Z"
+git push origin vX.Y.Z
 ```
 
-Inspect the wheel and source distribution before upload. Runtime source, package metadata, citation metadata, and the license belong in the distributions. Development-only tests, benchmarks, documentation sources, examples, generated documentation, caches, and local environments are excluded from the published archives.
+Pushing the tag starts `.github/workflows/release.yml`.
 
-## 4. Test the wheel
+## 4. Automated release workflow
 
-Install the wheel into a temporary target directory so the smoke test does not import the editable source tree:
+The release workflow:
 
-```bash
-rm -rf /tmp/edinpy-wheel-test
-python -m pip install --no-deps --target /tmp/edinpy-wheel-test dist/*.whl
-cd /tmp
-PYTHONPATH=/tmp/edinpy-wheel-test python -c "import edinpy; print(edinpy.__version__); print(edinpy.__file__)"
-```
+1. checks that the tag, package version, `CITATION.cff`, and `CHANGELOG.md`
+   agree;
+2. runs the test suite, optional Numba tests, Ruff, examples, and
+   documentation build;
+3. regenerates documentation figures and verifies that generation leaves the
+   checkout unchanged;
+4. builds the wheel and source distribution;
+5. validates the distributions with Twine and smoke-tests the built wheel;
+6. publishes the verified distributions to PyPI using Trusted Publishing;
+7. creates the GitHub Release and attaches the exact wheel, source
+   distribution, and `SHA256SUMS`.
 
-The reported module path should point inside `/tmp/edinpy-wheel-test`. Run a small fermionic and bosonic calculation with the same `PYTHONPATH` to verify the installed wheel.
+Do not create the GitHub Release before the workflow runs. Do not upload
+release assets or invoke `twine upload` manually.
 
-## 5. Tag and publish
+## 5. Documentation
 
-Commit the release state on `main`, create an annotated version tag such as `vX.Y.Z`, and create a GitHub release from that tag.
-
-Upload the exact files from `dist/` to PyPI. PyPI Trusted Publishing is preferred when the repository is configured for it.
-
-The documentation workflow deploys the `main` documentation to GitHub Pages.
+The separate documentation workflow deploys the `main` documentation to
+GitHub Pages.
 
 ## 6. Archive the release
 
-Archive the GitHub release in Zenodo or another long-term research-software archive. Add the release DOI to the citation metadata once it exists. Published work should cite the archived version used for the calculation.
+After the GitHub Release exists, archive it in Zenodo or another long-term
+research-software archive. If the repository is connected to Zenodo, the
+GitHub Release can be ingested through that integration.
+
+Published work should cite the archived version used for the calculation.
