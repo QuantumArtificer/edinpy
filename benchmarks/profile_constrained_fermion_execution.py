@@ -260,11 +260,12 @@ def _lookup_probe(ham, *, max_states: int, max_masks: int):
         )
         sampled_states = states[indices]
 
+    projected_lookup = plan.projected_lookup
     empty_rank = np.empty((0, 0, 0), dtype=np.int64)
     empty_popcounts = np.empty(0, dtype=np.uint8)
 
     @njit(nogil=True)
-    def probe(sampled, transition_masks, basis_states):
+    def probe(sampled, transition_masks, basis_states, direct_lookup):
         lookups = 0
         retained = 0
         checksum = np.int64(0)
@@ -279,6 +280,7 @@ def _lookup_probe(ham, *, max_states: int, max_masks: int):
                     state ^ mask,
                     basis_states,
                     False,
+                    direct_lookup,
                     empty_rank,
                     empty_popcounts,
                 )
@@ -288,9 +290,19 @@ def _lookup_probe(ham, *, max_states: int, max_masks: int):
                     checksum ^= row
         return lookups, retained, checksum
 
-    probe(sampled_states[: min(8, sampled_states.size)], masks, states)
+    probe(
+        sampled_states[: min(8, sampled_states.size)],
+        masks,
+        states,
+        projected_lookup,
+    )
     start = time.perf_counter()
-    lookups, retained, checksum = probe(sampled_states, masks, states)
+    lookups, retained, checksum = probe(
+        sampled_states,
+        masks,
+        states,
+        projected_lookup,
+    )
     seconds = time.perf_counter() - start
 
     return {
