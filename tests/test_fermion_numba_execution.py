@@ -270,6 +270,19 @@ def test_projected_numba_serial_eigsolve_converges():
     assert np.all(residuals < 1e-8)
 
 
+def test_projected_numba_execution_plan_uses_direct_lookup_when_compact():
+    from edinpy.fermion._numba_execution import _get_execution_plan
+
+    ham = _projected_spin_problem(noncontiguous=True)
+    plan = _get_execution_plan(ham._compiled, ham.sector.basis)
+
+    assert plan.lookup_strategy == "direct-table"
+    assert plan.projected_lookup.size == 1 << ham.sector.basis.n_modes
+    states = ham.sector.basis._execution_states()
+    indices = np.arange(states.size, dtype=np.int64)
+    np.testing.assert_array_equal(plan.projected_lookup[states], indices)
+
+
 def test_execution_selector_validation_and_matrix_free_guard():
     ham = _complete_problem()
 
