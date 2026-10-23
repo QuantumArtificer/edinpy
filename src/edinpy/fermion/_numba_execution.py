@@ -68,11 +68,18 @@ class _NumbaExecutionPlan:
     operator: _NumbaOperatorPlan
     states: NDArray[np.uint64]
     complete_basis: bool
+    projected_lookup: NDArray[np.integer]
+    lookup_strategy: str
     rank_contributions: NDArray[np.int64]
     byte_popcounts: NDArray[np.uint8]
 
 
 _NumbaMode = Literal["numba-serial", "numba-parallel"]
+
+# Keep optional projected-basis direct indexing bounded. A 24-mode basis uses
+# 64 MiB with int32 rows; larger state spaces fall back to binary search unless
+# their complete state-to-row table remains within this envelope.
+_MAX_PROJECTED_DIRECT_LOOKUP_BYTES = 128 * 1024**2
 
 
 def numba_available() -> bool:
@@ -360,18 +367,48 @@ def _get_execution_plan(
         + operator.monomial_transition_masks.size
     ) != 0
     complete_basis = bool(basis.is_complete)
+    states = np.asarray(basis._execution_states(), dtype=np.uint64)
+
+    projected_lookup = np.empty(0, dtype=np.int32)
+    lookup_strategy = "none"
     if needs_rank and complete_basis:
         rank_contributions, byte_popcounts = _complete_rank_tables(
             basis.n_modes, basis.N
         )
+        lookup_strategy = "combinadic"
     else:
         rank_contributions = np.empty((0, 0, 0), dtype=np.int64)
         byte_popcounts = np.empty(0, dtype=np.uint8)
 
+    if needs_rank and not complete_basis:
+        lookup_dtype = (
+            np.int32
+            if basis.dimension <= np.iinfo(np.int32).max
+            else np.int64
+        )
+        lookup_entries = 1 << int(basis.n_modes)
+        lookup_bytes = lookup_entries * np.dtype(lookup_dtype).itemsize
+        if lookup_bytes <= _MAX_PROJECTED_DIRECT_LOOKUP_BYTES:
+            projected_lookup = np.full(
+                lookup_entries,
+                -1,
+                dtype=lookup_dtype,
+            )
+            projected_lookup[states] = np.arange(
+                basis.dimension,
+                dtype=lookup_dtype,
+            )
+            projected_lookup.setflags(write=False)
+            lookup_strategy = "direct-table"
+        else:
+            lookup_strategy = "binary-search"
+
     plan = _NumbaExecutionPlan(
         operator=operator,
-        states=np.asarray(basis._execution_states(), dtype=np.uint64),
+        states=states,
         complete_basis=complete_basis,
+        projected_lookup=projected_lookup,
+        lookup_strategy=lookup_strategy,
         rank_contributions=rank_contributions,
         byte_popcounts=byte_popcounts,
     )
@@ -436,6 +473,7 @@ if njit is not None:
         state,
         states,
         complete_basis,
+        projected_lookup,
         rank_contributions,
         byte_popcounts,
     ):
@@ -452,6 +490,12 @@ if njit is not None:
                 rank_contributions,
                 byte_popcounts,
             )
+
+        if projected_lookup.size != 0:
+            index = int(state)
+            if index < projected_lookup.size:
+                return np.int64(projected_lookup[index])
+            return np.int64(-1)
 
         low = 0
         high = states.size
@@ -508,6 +552,7 @@ if njit is not None:
         states,
         vector,
         complete_basis,
+        projected_lookup,
         rank_contributions,
         byte_popcounts,
         monomial_occupied_masks,
@@ -538,6 +583,7 @@ if njit is not None:
                     final_state,
                     states,
                     complete_basis,
+                    projected_lookup,
                     rank_contributions,
                     byte_popcounts,
                 )
@@ -557,6 +603,7 @@ if njit is not None:
         states,
         vector,
         complete_basis,
+        projected_lookup,
         rank_contributions,
         byte_popcounts,
         number_masks,
@@ -597,6 +644,7 @@ if njit is not None:
                     final_state,
                     states,
                     complete_basis,
+                    projected_lookup,
                     rank_contributions,
                     byte_popcounts,
                 )
@@ -616,6 +664,7 @@ if njit is not None:
         states,
         vector,
         complete_basis,
+        projected_lookup,
         rank_contributions,
         byte_popcounts,
         simple_hopping_transition_masks,
@@ -650,6 +699,7 @@ if njit is not None:
                     state ^ transition_mask,
                     states,
                     complete_basis,
+                    projected_lookup,
                     rank_contributions,
                     byte_popcounts,
                 )
@@ -671,6 +721,7 @@ if njit is not None:
                     state ^ transition_mask,
                     states,
                     complete_basis,
+                    projected_lookup,
                     rank_contributions,
                     byte_popcounts,
                 )
@@ -693,6 +744,7 @@ if njit is not None:
                     state ^ transition_mask,
                     states,
                     complete_basis,
+                    projected_lookup,
                     rank_contributions,
                     byte_popcounts,
                 )
@@ -713,6 +765,7 @@ if njit is not None:
         states,
         vector,
         complete_basis,
+        projected_lookup,
         rank_contributions,
         byte_popcounts,
         number_masks,
@@ -764,6 +817,7 @@ if njit is not None:
                     final_state,
                     states,
                     complete_basis,
+                    projected_lookup,
                     rank_contributions,
                     byte_popcounts,
                 )
@@ -787,6 +841,7 @@ if njit is not None:
                     final_state,
                     states,
                     complete_basis,
+                    projected_lookup,
                     rank_contributions,
                     byte_popcounts,
                 )
@@ -810,6 +865,7 @@ if njit is not None:
                     final_state,
                     states,
                     complete_basis,
+                    projected_lookup,
                     rank_contributions,
                     byte_popcounts,
                 )
@@ -835,6 +891,7 @@ if njit is not None:
                     final_state,
                     states,
                     complete_basis,
+                    projected_lookup,
                     rank_contributions,
                     byte_popcounts,
                 )
@@ -1213,6 +1270,7 @@ def matvec_numba_serial(
                 states,
                 vector,
                 execution_plan.complete_basis,
+            execution_plan.projected_lookup,
                 rank_contributions,
                 byte_popcounts,
                 plan.monomial_occupied_masks,
@@ -1225,6 +1283,7 @@ def matvec_numba_serial(
             states,
             vector,
             execution_plan.complete_basis,
+            execution_plan.projected_lookup,
             rank_contributions,
             byte_popcounts,
             plan.number_masks,
@@ -1241,6 +1300,7 @@ def matvec_numba_serial(
             states,
             vector,
             execution_plan.complete_basis,
+            execution_plan.projected_lookup,
             rank_contributions,
             byte_popcounts,
             plan.simple_hopping_transition_masks,
@@ -1344,6 +1404,7 @@ def matvec_numba_parallel(
             execution_plan.states,
             vector,
             execution_plan.complete_basis,
+            execution_plan.projected_lookup,
             plan.number_masks,
             number_coefficients,
         )
