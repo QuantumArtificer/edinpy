@@ -661,6 +661,96 @@ if njit is not None:
         return np.int64(-1)
 
 
+    @njit(cache=True, nogil=True, inline="always")
+    def _scatter_serial_monomials(
+        state,
+        input_amplitude,
+        result,
+        states,
+        complete_basis,
+        factorized_meta,
+        factorized_lookup,
+        rank_contributions,
+        byte_popcounts,
+        monomial_occupied_masks,
+        monomial_empty_masks,
+        monomial_transition_masks,
+        monomial_parity_masks,
+        monomial_coefficients,
+        monomial_pair_forward_indices,
+        monomial_pair_reverse_indices,
+        monomial_unpaired_indices,
+    ):
+        """Scatter number-conserving monomials, sharing work for reversible pairs."""
+        for pair_index in range(monomial_pair_forward_indices.size):
+            forward = monomial_pair_forward_indices[pair_index]
+            reverse = monomial_pair_reverse_indices[pair_index]
+
+            index = np.int64(-1)
+            occupied = monomial_occupied_masks[forward]
+            if state & occupied == occupied:
+                empty = monomial_empty_masks[forward]
+                if state & empty == 0:
+                    index = forward
+
+            if index < 0:
+                occupied = monomial_occupied_masks[reverse]
+                if state & occupied == occupied:
+                    empty = monomial_empty_masks[reverse]
+                    if state & empty == 0:
+                        index = reverse
+
+            if index < 0:
+                continue
+
+            final_state = state ^ monomial_transition_masks[index]
+            row = _basis_row_uint64(
+                final_state,
+                states,
+                complete_basis,
+                factorized_meta,
+                factorized_lookup,
+                rank_contributions,
+                byte_popcounts,
+            )
+            if row < 0:
+                continue
+
+            amplitude = monomial_coefficients[index] * input_amplitude
+            parity_mask = monomial_parity_masks[index]
+            if parity_mask != 0 and _parity_uint64(state & parity_mask) != 0:
+                amplitude = -amplitude
+            result[row] += amplitude
+
+        for residual_index in range(monomial_unpaired_indices.size):
+            index = monomial_unpaired_indices[residual_index]
+            occupied = monomial_occupied_masks[index]
+            if state & occupied != occupied:
+                continue
+            empty = monomial_empty_masks[index]
+            if state & empty:
+                continue
+
+            final_state = state ^ monomial_transition_masks[index]
+            row = _basis_row_uint64(
+                final_state,
+                states,
+                complete_basis,
+                factorized_meta,
+                factorized_lookup,
+                rank_contributions,
+                byte_popcounts,
+            )
+            if row < 0:
+                continue
+
+            amplitude = monomial_coefficients[index] * input_amplitude
+            parity_mask = monomial_parity_masks[index]
+            if parity_mask != 0 and _parity_uint64(state & parity_mask) != 0:
+                amplitude = -amplitude
+            result[row] += amplitude
+
+
     @njit(cache=True, nogil=True)
     def _matvec_numba_serial_diagonal_kernel(
         states,
@@ -710,6 +800,9 @@ if njit is not None:
         monomial_transition_masks,
         monomial_parity_masks,
         monomial_coefficients,
+        monomial_pair_forward_indices,
+        monomial_pair_reverse_indices,
+        monomial_unpaired_indices,
     ):
         """Apply a plan containing only number-conserving monomials."""
         result = np.zeros(vector.size, dtype=vector.dtype)
@@ -720,31 +813,25 @@ if njit is not None:
                 continue
             state = states[column]
 
-            for index in range(monomial_transition_masks.size):
-                occupied = monomial_occupied_masks[index]
-                if state & occupied != occupied:
-                    continue
-                empty = monomial_empty_masks[index]
-                if state & empty:
-                    continue
-
-                final_state = state ^ monomial_transition_masks[index]
-                row = _basis_row_uint64(
-                    final_state,
-                    states,
-                    complete_basis,
-                    factorized_meta,
-                    factorized_lookup,
-                    rank_contributions,
-                    byte_popcounts,
-                )
-                if row < 0:
-                    continue
-                amplitude = monomial_coefficients[index] * input_amplitude
-                parity_mask = monomial_parity_masks[index]
-                if parity_mask != 0 and _parity_uint64(state & parity_mask) != 0:
-                    amplitude = -amplitude
-                result[row] += amplitude
+            _scatter_serial_monomials(
+                state,
+                input_amplitude,
+                result,
+                states,
+                complete_basis,
+                factorized_meta,
+                factorized_lookup,
+                rank_contributions,
+                byte_popcounts,
+                monomial_occupied_masks,
+                monomial_empty_masks,
+                monomial_transition_masks,
+                monomial_parity_masks,
+                monomial_coefficients,
+                monomial_pair_forward_indices,
+                monomial_pair_reverse_indices,
+                monomial_unpaired_indices,
+            )
 
         return result
 
@@ -765,6 +852,9 @@ if njit is not None:
         monomial_transition_masks,
         monomial_parity_masks,
         monomial_coefficients,
+        monomial_pair_forward_indices,
+        monomial_pair_reverse_indices,
+        monomial_unpaired_indices,
     ):
         """Apply a plan containing diagonal and number-conserving monomial terms."""
         result = np.zeros(vector.size, dtype=vector.dtype)
@@ -783,31 +873,25 @@ if njit is not None:
                         diagonal += number_coefficients[index]
                 result[column] += diagonal * input_amplitude
 
-            for index in range(monomial_transition_masks.size):
-                occupied = monomial_occupied_masks[index]
-                if state & occupied != occupied:
-                    continue
-                empty = monomial_empty_masks[index]
-                if state & empty:
-                    continue
-
-                final_state = state ^ monomial_transition_masks[index]
-                row = _basis_row_uint64(
-                    final_state,
-                    states,
-                    complete_basis,
-                    factorized_meta,
-                    factorized_lookup,
-                    rank_contributions,
-                    byte_popcounts,
-                )
-                if row < 0:
-                    continue
-                amplitude = monomial_coefficients[index] * input_amplitude
-                parity_mask = monomial_parity_masks[index]
-                if parity_mask != 0 and _parity_uint64(state & parity_mask) != 0:
-                    amplitude = -amplitude
-                result[row] += amplitude
+            _scatter_serial_monomials(
+                state,
+                input_amplitude,
+                result,
+                states,
+                complete_basis,
+                factorized_meta,
+                factorized_lookup,
+                rank_contributions,
+                byte_popcounts,
+                monomial_occupied_masks,
+                monomial_empty_masks,
+                monomial_transition_masks,
+                monomial_parity_masks,
+                monomial_coefficients,
+                monomial_pair_forward_indices,
+                monomial_pair_reverse_indices,
+                monomial_unpaired_indices,
+            )
 
         return result
 
@@ -946,6 +1030,9 @@ if njit is not None:
         monomial_transition_masks,
         monomial_parity_masks,
         monomial_coefficients,
+        monomial_pair_forward_indices,
+        monomial_pair_reverse_indices,
+        monomial_unpaired_indices,
     ):
         """Apply a mixed plan containing diagonal, hopping, or monomial kernels."""
         result = np.zeros(vector.size, dtype=vector.dtype)
@@ -1039,31 +1126,25 @@ if njit is not None:
                     amplitude = -amplitude
                 result[row] += amplitude
 
-            for index in range(monomial_transition_masks.size):
-                occupied = monomial_occupied_masks[index]
-                if state & occupied != occupied:
-                    continue
-                empty = monomial_empty_masks[index]
-                if state & empty:
-                    continue
-
-                final_state = state ^ monomial_transition_masks[index]
-                row = _basis_row_uint64(
-                    final_state,
-                    states,
-                    complete_basis,
-                    factorized_meta,
-                    factorized_lookup,
-                    rank_contributions,
-                    byte_popcounts,
-                )
-                if row < 0:
-                    continue
-                amplitude = monomial_coefficients[index] * input_amplitude
-                parity_mask = monomial_parity_masks[index]
-                if parity_mask != 0 and _parity_uint64(state & parity_mask) != 0:
-                    amplitude = -amplitude
-                result[row] += amplitude
+            _scatter_serial_monomials(
+                state,
+                input_amplitude,
+                result,
+                states,
+                complete_basis,
+                factorized_meta,
+                factorized_lookup,
+                rank_contributions,
+                byte_popcounts,
+                monomial_occupied_masks,
+                monomial_empty_masks,
+                monomial_transition_masks,
+                monomial_parity_masks,
+                monomial_coefficients,
+                monomial_pair_forward_indices,
+                monomial_pair_reverse_indices,
+                monomial_unpaired_indices,
+            )
 
         return result
 
@@ -1441,6 +1522,9 @@ def matvec_numba_serial(
                 plan.monomial_transition_masks,
                 plan.monomial_parity_masks,
                 monomial_coefficients,
+                plan.monomial_pair_forward_indices,
+                plan.monomial_pair_reverse_indices,
+                plan.monomial_unpaired_indices,
             )
         return _matvec_numba_serial_diagonal_monomial_kernel(
             states,
@@ -1511,6 +1595,9 @@ def matvec_numba_serial(
         plan.monomial_transition_masks,
         plan.monomial_parity_masks,
         monomial_coefficients,
+        plan.monomial_pair_forward_indices,
+        plan.monomial_pair_reverse_indices,
+        plan.monomial_unpaired_indices,
     )
 
 
@@ -1561,6 +1648,9 @@ def matvec_numba_parallel(
         signed_low_from_high,
         signed_high_from_low,
         monomial_coefficients,
+        plan.monomial_pair_forward_indices,
+        plan.monomial_pair_reverse_indices,
+        plan.monomial_unpaired_indices,
     ) = _coefficient_arrays(plan, coefficient_dtype)
 
     hopping_count = _hopping_kernel_count(plan)
