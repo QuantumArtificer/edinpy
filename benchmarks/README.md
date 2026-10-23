@@ -39,6 +39,26 @@ python benchmarks/profile_fermion_execution.py \
 `--families` selects a subset of workloads. `--threads` applies only to
 `numba-parallel`; values above Numba's configured maximum are skipped.
 
+### Constrained fermion execution
+
+`profile_constrained_fermion_execution.py` measures the population-constrained
+fermion path on a fully lowered mixed Hamiltonian. The default 24-mode problem
+uses two conserved populations with six particles each and records setup, JIT,
+steady-state matrix-vector timing, peak RSS, numerical agreement with NumPy,
+and projected destination-lookup throughput.
+
+```bash
+python benchmarks/profile_constrained_fermion_execution.py \
+  --repeat 3 \
+  --json constrained_fermion_24_12.json
+```
+
+The default synthetic workload contains 156 number products, 72 Hermitian
+hopping groups, and 288 Hermitian quartic processes. These counts are chosen to
+stress the same execution dimensions as a large mixed many-body Hamiltonian;
+the benchmark does not encode a particular material, lattice, or point-group
+symmetry.
+
 ## Matrix-free solvers
 
 `profile_matrix_free.py` compares explicit sparse-matrix and matrix-free solver
