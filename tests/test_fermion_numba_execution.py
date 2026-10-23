@@ -165,6 +165,51 @@ def _projected_spin_problem(*, noncontiguous: bool = False) -> edf.Hamiltonian:
     return edf.Hamiltonian(operator, sector)
 
 
+def test_serial_numba_pairs_exactly_reversible_monomials():
+    from edinpy.fermion._numba_execution import _get_execution_plan
+
+    modes = edf.FermionModes(edf.DoF(6))
+    sector = edf.NParticleSector(modes, N=2).build()
+    c = edf.set_notation(edf.Annihilation, modes)
+    cd = edf.set_notation(edf.Creation, modes)
+
+    forward = 0.37 * cd(4) * cd(5) * c(1) * c(0)
+    ham = edf.Hamiltonian(forward + forward.dag, sector)
+    plan = _get_execution_plan(ham._compiled, sector.basis).operator
+
+    assert plan.monomial_transition_masks.size == 2
+    assert plan.monomial_pair_forward_indices.size == 1
+    assert plan.monomial_pair_reverse_indices.size == 1
+    assert plan.monomial_unpaired_indices.size == 0
+
+    vector = _vector(ham, complex_valued=False, seed=3310)
+    actual = ham.aslinearoperator(execution="numba-serial") @ vector
+    expected = ham.matrix @ vector
+    np.testing.assert_allclose(actual, expected, rtol=1e-13, atol=1e-13)
+
+
+def test_serial_numba_leaves_unpaired_monomial_on_residual_path():
+    from edinpy.fermion._numba_execution import _get_execution_plan
+
+    modes = edf.FermionModes(edf.DoF(6))
+    sector = edf.NParticleSector(modes, N=2).build()
+    c = edf.set_notation(edf.Annihilation, modes)
+    cd = edf.set_notation(edf.Creation, modes)
+
+    operator = (0.23 + 0.11j) * cd(4) * cd(5) * c(1) * c(0)
+    ham = edf.Hamiltonian(operator, sector)
+    plan = _get_execution_plan(ham._compiled, sector.basis).operator
+
+    assert plan.monomial_pair_forward_indices.size == 0
+    assert plan.monomial_pair_reverse_indices.size == 0
+    assert plan.monomial_unpaired_indices.size == 1
+
+    vector = _vector(ham, complex_valued=True, seed=3311)
+    actual = ham.aslinearoperator(execution="numba-serial") @ vector
+    expected = ham.matrix @ vector
+    np.testing.assert_allclose(actual, expected, rtol=1e-13, atol=1e-13)
+
+
 def test_projected_numba_rank_strategy_matches_basis_geometry():
     from edinpy.fermion._numba_execution import _get_execution_plan
 
