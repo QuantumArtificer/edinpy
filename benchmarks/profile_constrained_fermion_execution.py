@@ -213,12 +213,17 @@ def _measure_matvec(operator, vector, repeat: int):
     return result, first_seconds, samples
 
 
-def _prepare_numba_plan(ham) -> float:
+def _prepare_numba_plan(ham) -> dict[str, object]:
     from edinpy.fermion._numba_execution import _get_execution_plan
 
     start = time.perf_counter()
-    _get_execution_plan(ham._compiled, ham.sector.basis)
-    return time.perf_counter() - start
+    plan = _get_execution_plan(ham._compiled, ham.sector.basis)
+    seconds = time.perf_counter() - start
+    return {
+        "seconds": seconds,
+        "lookup_strategy": plan.lookup_strategy,
+        "projected_lookup_bytes": int(plan.projected_lookup.nbytes),
+    }
 
 
 def _lookup_probe(ham, *, max_states: int, max_masks: int):
@@ -394,7 +399,7 @@ def main() -> None:
 
     rows = []
     reference = None
-    plan_seconds = None
+    plan_metadata = None
 
     for execution in args.executions:
         try:
@@ -413,7 +418,7 @@ def main() -> None:
             continue
 
         if execution == "numba-serial":
-            plan_seconds = _prepare_numba_plan(ham)
+            plan_metadata = _prepare_numba_plan(ham)
 
         result, first_seconds, samples = _measure_matvec(
             operator,
@@ -436,14 +441,23 @@ def main() -> None:
         )
         row["linear_operator_seconds"] = linear_operator_seconds
         if execution == "numba-serial":
-            row["execution_plan_seconds"] = plan_seconds
+            row["execution_plan_seconds"] = plan_metadata["seconds"]
+            row["lookup_strategy"] = plan_metadata["lookup_strategy"]
+            row["projected_lookup_bytes"] = plan_metadata["projected_lookup_bytes"]
         rows.append(row)
 
+        strategy = (
+            f" lookup={row['lookup_strategy']} "
+            f"({row['projected_lookup_bytes'] / 1024**2:.1f} MiB)"
+            if execution == "numba-serial"
+            else ""
+        )
         print(
             f"{execution:>14}: first={first_seconds:.6f}s "
             f"steady={row['steady_matvec_seconds_median']:.6f}s "
             f"delta={row['max_abs_delta_vs_numpy']:.3e} "
             f"rss={row['peak_rss_mib']:.1f} MiB"
+            f"{strategy}"
         )
 
     numpy_row = next(
