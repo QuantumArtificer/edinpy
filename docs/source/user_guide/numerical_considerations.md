@@ -83,6 +83,8 @@ The `execution` argument selects the implementation used for repeated Hamiltonia
 
 The first call to a Numba path includes JIT compilation and should not be included in steady-state timing. Parallel execution is workload dependent: thread overhead can dominate a moderate sector even when a larger sector scales well. Representative measurements are given in {doc}`../validation/performance`.
 
+For fermions, `numba-serial` supports fully lowered complete and population-constrained fixed-particle bases with at most 64 modes. Projected bases use a compiled lookup over the retained sorted occupation states and discard transitions that leave the selected sector. `numba-parallel` currently remains restricted to complete fixed-particle bases; projected parallel execution requires a separate race-free indexing strategy. For a supported projected fermion basis, `mixed` resolves to `numba-serial`.
+
 Explicit Numba modes are strict. An unsupported basis or operator structure raises an error rather than silently changing the requested execution mode.
 
 ## Krylov-space memory
