@@ -414,7 +414,10 @@ def _basis_from_group_occupations(n_modes, N, groups, occupations):
             offset += pattern_dimension
 
         states.sort()
-        return FockBasis._from_sorted_states(n_modes, N, states)
+        basis = FockBasis._from_sorted_states(n_modes, N, states)
+        if len(occupations) == 1:
+            basis._set_fixed_group_constraints(groups, occupations[0])
+        return basis
 
     n_words = (n_modes + 63) // 64
     cache = {}
@@ -438,7 +441,10 @@ def _basis_from_group_occupations(n_modes, N, groups, occupations):
         offset += pattern_dimension
 
     sorted_states = _sorted_python_states_from_words(states)
-    return FockBasis._from_sorted_states(n_modes, N, sorted_states)
+    basis = FockBasis._from_sorted_states(n_modes, N, sorted_states)
+    if len(occupations) == 1:
+        basis._set_fixed_group_constraints(groups, occupations[0])
+    return basis
 
 
 class NParticleSector:
