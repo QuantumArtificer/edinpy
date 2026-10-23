@@ -68,11 +68,18 @@ class _NumbaExecutionPlan:
     operator: _NumbaOperatorPlan
     states: NDArray[np.uint64]
     complete_basis: bool
+    factorized_meta: NDArray[np.int64]
+    factorized_lookup: NDArray[np.int64]
+    lookup_strategy: str
     rank_contributions: NDArray[np.int64]
     byte_popcounts: NDArray[np.uint8]
 
 
 _NumbaMode = Literal["numba-serial", "numba-parallel"]
+
+# Factorized lookup tables are deliberately small. Wider/noncontiguous projected
+# groups retain the general binary-search fallback.
+_MAX_FACTORIZED_LOOKUP_BYTES = 8 * 1024**2
 
 
 def numba_available() -> bool:
@@ -322,6 +329,84 @@ def _pack_operator_plan(compiled: "CompiledOperator") -> _NumbaOperatorPlan:
     return plan
 
 
+def _factorized_projected_rank_tables(
+    basis: "FockBasis",
+) -> tuple[NDArray[np.int64], NDArray[np.int64]]:
+    """Build exact mixed-radix row tables for contiguous fixed-population groups.
+
+    Projected bases generated from one fixed occupation pattern carry private
+    disjoint-group metadata. When those groups occupy contiguous bit ranges,
+    ascending occupation integers are ordered as a mixed-radix product of the
+    local fixed-population bases. Small local state-to-rank tables then give
+    exact destination rows without searching the retained global basis.
+
+    Noncontiguous groups, overlapping/multi-pattern projections, very wide
+    local groups, or plans exceeding the small lookup-memory envelope return
+    empty arrays and use the generic binary-search fallback.
+    """
+    empty_meta = np.empty((0, 4), dtype=np.int64)
+    empty_lookup = np.empty(0, dtype=np.int64)
+
+    specification = getattr(basis, "_fixed_group_constraints", None)
+    if specification is None or basis.is_complete or basis.n_modes > 64:
+        return empty_meta, empty_lookup
+
+    groups, counts = specification
+    if not groups:
+        return empty_meta, empty_lookup
+
+    ordered = sorted(
+        zip(groups, counts),
+        key=lambda item: item[0][0] if item[0] else basis.n_modes,
+    )
+
+    expected_start = 0
+    total_entries = 0
+    descriptors = []
+    tables = []
+
+    for group, count in ordered:
+        group = tuple(int(mode) for mode in group)
+        count = int(count)
+        if not group:
+            return empty_meta, empty_lookup
+
+        start = group[0]
+        width = len(group)
+        if start != expected_start:
+            return empty_meta, empty_lookup
+        if group != tuple(range(start, start + width)):
+            return empty_meta, empty_lookup
+        if width >= 63:
+            return empty_meta, empty_lookup
+
+        entries = 1 << width
+        new_total = total_entries + entries
+        if new_total * np.dtype(np.int64).itemsize > _MAX_FACTORIZED_LOOKUP_BYTES:
+            return empty_meta, empty_lookup
+
+        table = np.full(entries, -1, dtype=np.int64)
+        rank = 0
+        for local_state in range(entries):
+            if local_state.bit_count() == count:
+                table[local_state] = rank
+                rank += 1
+
+        descriptors.append((start, width, total_entries, rank))
+        tables.append(table)
+        total_entries = new_total
+        expected_start = start + width
+
+    if expected_start != basis.n_modes:
+        return empty_meta, empty_lookup
+
+    meta = np.asarray(descriptors, dtype=np.int64)
+    lookup = np.concatenate(tables) if tables else empty_lookup
+    meta.setflags(write=False)
+    lookup.setflags(write=False)
+    return meta, lookup
+
+
 def _get_execution_plan(
     compiled: "CompiledOperator",
     basis: "FockBasis",
@@ -360,18 +445,36 @@ def _get_execution_plan(
         + operator.monomial_transition_masks.size
     ) != 0
     complete_basis = bool(basis.is_complete)
+    factorized_meta = np.empty((0, 4), dtype=np.int64)
+    factorized_lookup = np.empty(0, dtype=np.int64)
+    lookup_strategy = "none"
+
     if needs_rank and complete_basis:
         rank_contributions, byte_popcounts = _complete_rank_tables(
             basis.n_modes, basis.N
         )
+        lookup_strategy = "combinadic"
     else:
         rank_contributions = np.empty((0, 0, 0), dtype=np.int64)
         byte_popcounts = np.empty(0, dtype=np.uint8)
+
+    if needs_rank and not complete_basis:
+        factorized_meta, factorized_lookup = _factorized_projected_rank_tables(
+            basis
+        )
+        lookup_strategy = (
+            "factorized-contiguous"
+            if factorized_meta.size
+            else "binary-search"
+        )
 
     plan = _NumbaExecutionPlan(
         operator=operator,
         states=np.asarray(basis._execution_states(), dtype=np.uint64),
         complete_basis=complete_basis,
+        factorized_meta=factorized_meta,
+        factorized_lookup=factorized_lookup,
+        lookup_strategy=lookup_strategy,
         rank_contributions=rank_contributions,
         byte_popcounts=byte_popcounts,
     )
@@ -436,6 +539,8 @@ if njit is not None:
         state,
         states,
         complete_basis,
+        factorized_meta,
+        factorized_lookup,
         rank_contributions,
         byte_popcounts,
     ):
@@ -452,6 +557,25 @@ if njit is not None:
                 rank_contributions,
                 byte_popcounts,
             )
+
+        if factorized_meta.size != 0:
+            row = np.int64(0)
+            stride = np.int64(1)
+            for group_index in range(factorized_meta.shape[0]):
+                shift = factorized_meta[group_index, 0]
+                width = factorized_meta[group_index, 1]
+                offset = factorized_meta[group_index, 2]
+                local_dimension = factorized_meta[group_index, 3]
+                mask = (np.uint64(1) << np.uint64(width)) - np.uint64(1)
+                local_state = int(
+                    (state >> np.uint64(shift)) & mask
+                )
+                local_rank = factorized_lookup[offset + local_state]
+                if local_rank < 0:
+                    return np.int64(-1)
+                row += stride * local_rank
+                stride *= local_dimension
+            return row
 
         low = 0
         high = states.size
@@ -508,6 +632,8 @@ if njit is not None:
         states,
         vector,
         complete_basis,
+        factorized_meta,
+        factorized_lookup,
         rank_contributions,
         byte_popcounts,
         monomial_occupied_masks,
@@ -538,6 +664,8 @@ if njit is not None:
                     final_state,
                     states,
                     complete_basis,
+                    factorized_meta,
+                    factorized_lookup,
                     rank_contributions,
                     byte_popcounts,
                 )
@@ -557,6 +685,8 @@ if njit is not None:
         states,
         vector,
         complete_basis,
+        factorized_meta,
+        factorized_lookup,
         rank_contributions,
         byte_popcounts,
         number_masks,
@@ -597,6 +727,8 @@ if njit is not None:
                     final_state,
                     states,
                     complete_basis,
+                    factorized_meta,
+                    factorized_lookup,
                     rank_contributions,
                     byte_popcounts,
                 )
@@ -616,6 +748,8 @@ if njit is not None:
         states,
         vector,
         complete_basis,
+        factorized_meta,
+        factorized_lookup,
         rank_contributions,
         byte_popcounts,
         simple_hopping_transition_masks,
@@ -650,6 +784,8 @@ if njit is not None:
                     state ^ transition_mask,
                     states,
                     complete_basis,
+                    factorized_meta,
+                    factorized_lookup,
                     rank_contributions,
                     byte_popcounts,
                 )
@@ -671,6 +807,8 @@ if njit is not None:
                     state ^ transition_mask,
                     states,
                     complete_basis,
+                    factorized_meta,
+                    factorized_lookup,
                     rank_contributions,
                     byte_popcounts,
                 )
@@ -693,6 +831,8 @@ if njit is not None:
                     state ^ transition_mask,
                     states,
                     complete_basis,
+                    factorized_meta,
+                    factorized_lookup,
                     rank_contributions,
                     byte_popcounts,
                 )
@@ -713,6 +853,8 @@ if njit is not None:
         states,
         vector,
         complete_basis,
+        factorized_meta,
+        factorized_lookup,
         rank_contributions,
         byte_popcounts,
         number_masks,
@@ -764,6 +906,8 @@ if njit is not None:
                     final_state,
                     states,
                     complete_basis,
+                    factorized_meta,
+                    factorized_lookup,
                     rank_contributions,
                     byte_popcounts,
                 )
@@ -787,6 +931,8 @@ if njit is not None:
                     final_state,
                     states,
                     complete_basis,
+                    factorized_meta,
+                    factorized_lookup,
                     rank_contributions,
                     byte_popcounts,
                 )
@@ -810,6 +956,8 @@ if njit is not None:
                     final_state,
                     states,
                     complete_basis,
+                    factorized_meta,
+                    factorized_lookup,
                     rank_contributions,
                     byte_popcounts,
                 )
@@ -835,6 +983,8 @@ if njit is not None:
                     final_state,
                     states,
                     complete_basis,
+                    factorized_meta,
+                    factorized_lookup,
                     rank_contributions,
                     byte_popcounts,
                 )
@@ -1213,6 +1363,8 @@ def matvec_numba_serial(
                 states,
                 vector,
                 execution_plan.complete_basis,
+            execution_plan.factorized_meta,
+            execution_plan.factorized_lookup,
                 rank_contributions,
                 byte_popcounts,
                 plan.monomial_occupied_masks,
@@ -1225,6 +1377,8 @@ def matvec_numba_serial(
             states,
             vector,
             execution_plan.complete_basis,
+            execution_plan.factorized_meta,
+            execution_plan.factorized_lookup,
             rank_contributions,
             byte_popcounts,
             plan.number_masks,
@@ -1241,6 +1395,8 @@ def matvec_numba_serial(
             states,
             vector,
             execution_plan.complete_basis,
+            execution_plan.factorized_meta,
+            execution_plan.factorized_lookup,
             rank_contributions,
             byte_popcounts,
             plan.simple_hopping_transition_masks,
@@ -1344,6 +1500,8 @@ def matvec_numba_parallel(
             execution_plan.states,
             vector,
             execution_plan.complete_basis,
+            execution_plan.factorized_meta,
+            execution_plan.factorized_lookup,
             plan.number_masks,
             number_coefficients,
         )
