@@ -5,6 +5,7 @@ Benchmarks live in [`benchmarks/`](https://github.com/QuantumArtificer/edinpy/tr
 The durable benchmark entry points are:
 
 - `profile_fermion_execution.py` - fermion matrix-free execution modes across representative operator families
+- `profile_constrained_fermion_execution.py` - constrained fermion execution on a large mixed lowered workload, including setup, JIT, steady matvec, memory, and destination-lookup timings
 - `profile_boson_execution.py` - boson matrix-free execution modes on complete or symmetry-constrained sectors
 - `profile_matrix_free.py` - explicit CSC versus matrix-free Hamiltonian workflows
 - `profile_solver_memory.py` - ARPACK timing and memory as the Krylov subspace size changes
@@ -26,6 +27,8 @@ The NumPy result is used as a numerical reference for the same input vector. Num
 The operator portfolio includes diagonal terms, density interactions, real and complex hopping, extended-Hubbard terms, exchange and pair transfer, and generic number-conserving quartic monomials. The portfolio spans different amounts and types of per-state work, so the dependence on operator structure remains visible.
 
 A compact reference result from this benchmark is presented in {doc}`../validation/performance`.
+
+`profile_constrained_fermion_execution.py` targets the projected-basis path separately. Its default problem has 24 fermion modes split into two independently conserved populations of six particles each, giving a dimension of 853,776 states. The synthetic Hamiltonian is fully lowered and combines number products, Hermitian hopping groups, and quartic number-conserving processes. The benchmark records sector construction, symbolic expression construction, Hamiltonian compilation, LinearOperator creation, Numba execution-plan setup, first/JIT matrix-vector application, steady-state matrix-vector timing, peak resident memory, numerical agreement with NumPy, and an isolated projected destination-lookup probe.
 
 ## Sparse versus matrix-free eigensolution
 
