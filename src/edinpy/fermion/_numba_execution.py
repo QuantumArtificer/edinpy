@@ -1,4 +1,4 @@
-"""Numba matrix-free execution for complete fixed-particle fermion bases."""
+"""Numba matrix-free execution for fixed-particle fermion bases."""
 
 from __future__ import annotations
 
@@ -58,14 +58,16 @@ class _NumbaExecutionPlan:
     """Cached operator and basis data shared by repeated Numba matvec calls.
 
     ``operator`` contains arrays that depend only on the compiled Hamiltonian.
-    ``states`` fixes the complete-basis ordering. ``rank_contributions`` and
-    ``byte_popcounts`` map native occupation words directly to basis indices
-    for off-diagonal transitions. Purely diagonal plans leave the rank tables
+    ``states`` fixes the basis ordering. Complete bases use
+    ``rank_contributions`` and ``byte_popcounts`` for direct combinadic
+    destination ranking. Projected bases use compiled binary search over the same
+    sorted native-word state array. Purely diagonal plans leave the rank tables
     empty because no destination lookup is required.
     """
 
     operator: _NumbaOperatorPlan
     states: NDArray[np.uint64]
+    complete_basis: bool
     rank_contributions: NDArray[np.int64]
     byte_popcounts: NDArray[np.uint8]
 
@@ -92,8 +94,6 @@ def _unsupported_reason(
         return "generic symbolic fallback kernels are present"
     if int(basis.n_modes) > 64:
         return "more than 64 fermion modes require the arbitrary-width executor"
-    if not bool(getattr(basis, "is_complete", False)):
-        return "projected/constrained bases are not supported by Numba execution yet"
     return None
 
 
@@ -107,13 +107,15 @@ def numba_supported(compiled: "CompiledOperator", basis: "FockBasis") -> bool:
         have a lowered bitwise representation; generic symbolic fallback terms
         are not accepted.
     basis : FockBasis
-        Built basis on which the operator acts. The Numba backend currently
-        accepts complete fixed-particle bases with at most 64 fermion modes.
+        Built basis on which the operator acts. Serial Numba execution accepts
+        complete and projected fixed-particle bases with at most 64 fermion
+        modes.
 
     Returns
     -------
     bool
-        ``True`` when both serial and parallel Numba execution are available.
+        ``True`` when serial Numba execution is available. Parallel execution
+        may impose additional restrictions.
     """
     return _unsupported_reason(compiled, basis) is None
 
@@ -147,6 +149,11 @@ def require_numba_supported(
     if execution not in {"numba-serial", "numba-parallel"}:
         raise ValueError(f"Unknown strict Numba execution mode {execution!r}.")
     reason = _unsupported_reason(compiled, basis)
+    if reason is None and execution == "numba-parallel" and not basis.is_complete:
+        reason = (
+            "projected/constrained bases are not supported by parallel "
+            "Numba execution yet"
+        )
     if reason is not None:
         raise NotImplementedError(
             f"execution={execution!r} is unavailable for this Hamiltonian: "
@@ -327,9 +334,9 @@ def _get_execution_plan(
         Lowered operator whose packed masks and coefficients are shared across
         repeated matrix-vector products.
     basis : FockBasis
-        Complete fixed-particle basis. Its native occupation words determine
-        the execution ordering and its ``(n_modes, N)`` pair determines the
-        direct combinadic rank tables.
+        Fixed-particle basis. Its native occupation words determine the
+        execution ordering. Complete bases additionally use their
+        ``(n_modes, N)`` pair to construct direct combinadic rank tables.
 
     Returns
     -------
@@ -352,7 +359,8 @@ def _get_execution_plan(
         + operator.signed_hopping_transition_masks.size
         + operator.monomial_transition_masks.size
     ) != 0
-    if needs_rank:
+    complete_basis = bool(basis.is_complete)
+    if needs_rank and complete_basis:
         rank_contributions, byte_popcounts = _complete_rank_tables(
             basis.n_modes, basis.N
         )
@@ -363,6 +371,7 @@ def _get_execution_plan(
     plan = _NumbaExecutionPlan(
         operator=operator,
         states=np.asarray(basis._execution_states(), dtype=np.uint64),
+        complete_basis=complete_basis,
         rank_contributions=rank_contributions,
         byte_popcounts=byte_popcounts,
     )
@@ -422,6 +431,43 @@ if njit is not None:
         return rank
 
 
+    @njit(cache=True, nogil=True, inline="always")
+    def _basis_row_uint64(
+        state,
+        states,
+        complete_basis,
+        rank_contributions,
+        byte_popcounts,
+    ):
+        """Return the retained basis row for one native-word occupation state.
+
+        Complete fixed-particle bases use direct combinadic ranking. Projected
+        bases are sorted subsets of the complete basis, so a compiled binary
+        search provides the generic fallback. A negative row marks a transition
+        that leaves the projected sector.
+        """
+        if complete_basis:
+            return _complete_rank_uint64(
+                state,
+                rank_contributions,
+                byte_popcounts,
+            )
+
+        low = 0
+        high = states.size
+        while low < high:
+            middle = (low + high) // 2
+            candidate = states[middle]
+            if candidate < state:
+                low = middle + 1
+            else:
+                high = middle
+
+        if low < states.size and states[low] == state:
+            return np.int64(low)
+        return np.int64(-1)
+
+
     @njit(cache=True, nogil=True)
     def _matvec_numba_serial_diagonal_kernel(
         states,
@@ -461,6 +507,7 @@ if njit is not None:
     def _matvec_numba_serial_pure_monomial_kernel(
         states,
         vector,
+        complete_basis,
         rank_contributions,
         byte_popcounts,
         monomial_occupied_masks,
@@ -487,9 +534,15 @@ if njit is not None:
                     continue
 
                 final_state = state ^ monomial_transition_masks[index]
-                row = _complete_rank_uint64(
-                    final_state, rank_contributions, byte_popcounts
+                row = _basis_row_uint64(
+                    final_state,
+                    states,
+                    complete_basis,
+                    rank_contributions,
+                    byte_popcounts,
                 )
+                if row < 0:
+                    continue
                 amplitude = monomial_coefficients[index] * input_amplitude
                 parity_mask = monomial_parity_masks[index]
                 if parity_mask != 0 and _parity_uint64(state & parity_mask) != 0:
@@ -503,6 +556,7 @@ if njit is not None:
     def _matvec_numba_serial_diagonal_monomial_kernel(
         states,
         vector,
+        complete_basis,
         rank_contributions,
         byte_popcounts,
         number_masks,
@@ -539,9 +593,15 @@ if njit is not None:
                     continue
 
                 final_state = state ^ monomial_transition_masks[index]
-                row = _complete_rank_uint64(
-                    final_state, rank_contributions, byte_popcounts
+                row = _basis_row_uint64(
+                    final_state,
+                    states,
+                    complete_basis,
+                    rank_contributions,
+                    byte_popcounts,
                 )
+                if row < 0:
+                    continue
                 amplitude = monomial_coefficients[index] * input_amplitude
                 parity_mask = monomial_parity_masks[index]
                 if parity_mask != 0 and _parity_uint64(state & parity_mask) != 0:
@@ -555,6 +615,7 @@ if njit is not None:
     def _matvec_numba_serial_pure_hopping_kernel(
         states,
         vector,
+        complete_basis,
         rank_contributions,
         byte_popcounts,
         simple_hopping_transition_masks,
@@ -585,9 +646,15 @@ if njit is not None:
                 occupation = state & transition_mask
                 if occupation == 0 or occupation == transition_mask:
                     continue
-                row = _complete_rank_uint64(
-                    state ^ transition_mask, rank_contributions, byte_popcounts
+                row = _basis_row_uint64(
+                    state ^ transition_mask,
+                    states,
+                    complete_basis,
+                    rank_contributions,
+                    byte_popcounts,
                 )
+                if row < 0:
+                    continue
                 result[row] += simple_hopping_coefficients[index] * input_amplitude
 
             for index in range(parity_free_hopping_transition_masks.size):
@@ -600,9 +667,15 @@ if njit is not None:
                     continue
                 if coefficient == 0:
                     continue
-                row = _complete_rank_uint64(
-                    state ^ transition_mask, rank_contributions, byte_popcounts
+                row = _basis_row_uint64(
+                    state ^ transition_mask,
+                    states,
+                    complete_basis,
+                    rank_contributions,
+                    byte_popcounts,
                 )
+                if row < 0:
+                    continue
                 result[row] += coefficient * input_amplitude
 
             for index in range(signed_hopping_transition_masks.size):
@@ -616,9 +689,15 @@ if njit is not None:
                 if coefficient == 0:
                     continue
 
-                row = _complete_rank_uint64(
-                    state ^ transition_mask, rank_contributions, byte_popcounts
+                row = _basis_row_uint64(
+                    state ^ transition_mask,
+                    states,
+                    complete_basis,
+                    rank_contributions,
+                    byte_popcounts,
                 )
+                if row < 0:
+                    continue
                 amplitude = coefficient * input_amplitude
                 if _parity_uint64(
                     state & signed_hopping_parity_masks[index]
@@ -633,6 +712,7 @@ if njit is not None:
     def _matvec_numba_serial_mixed_kernel(
         states,
         vector,
+        complete_basis,
         rank_contributions,
         byte_popcounts,
         number_masks,
@@ -680,9 +760,15 @@ if njit is not None:
                     continue
 
                 final_state = state ^ transition_mask
-                row = _complete_rank_uint64(
-                    final_state, rank_contributions, byte_popcounts
+                row = _basis_row_uint64(
+                    final_state,
+                    states,
+                    complete_basis,
+                    rank_contributions,
+                    byte_popcounts,
                 )
+                if row < 0:
+                    continue
                 result[row] += simple_hopping_coefficients[index] * input_amplitude
 
             for index in range(parity_free_hopping_transition_masks.size):
@@ -697,9 +783,15 @@ if njit is not None:
                     continue
 
                 final_state = state ^ transition_mask
-                row = _complete_rank_uint64(
-                    final_state, rank_contributions, byte_popcounts
+                row = _basis_row_uint64(
+                    final_state,
+                    states,
+                    complete_basis,
+                    rank_contributions,
+                    byte_popcounts,
                 )
+                if row < 0:
+                    continue
                 result[row] += coefficient * input_amplitude
 
             for index in range(signed_hopping_transition_masks.size):
@@ -714,9 +806,15 @@ if njit is not None:
                     continue
 
                 final_state = state ^ transition_mask
-                row = _complete_rank_uint64(
-                    final_state, rank_contributions, byte_popcounts
+                row = _basis_row_uint64(
+                    final_state,
+                    states,
+                    complete_basis,
+                    rank_contributions,
+                    byte_popcounts,
                 )
+                if row < 0:
+                    continue
                 amplitude = coefficient * input_amplitude
                 if _parity_uint64(
                     state & signed_hopping_parity_masks[index]
@@ -733,9 +831,15 @@ if njit is not None:
                     continue
 
                 final_state = state ^ monomial_transition_masks[index]
-                row = _complete_rank_uint64(
-                    final_state, rank_contributions, byte_popcounts
+                row = _basis_row_uint64(
+                    final_state,
+                    states,
+                    complete_basis,
+                    rank_contributions,
+                    byte_popcounts,
                 )
+                if row < 0:
+                    continue
                 amplitude = monomial_coefficients[index] * input_amplitude
                 parity_mask = monomial_parity_masks[index]
                 if parity_mask != 0 and _parity_uint64(state & parity_mask) != 0:
@@ -1057,7 +1161,8 @@ def matvec_numba_serial(
     compiled : CompiledOperator
         Fully lowered fermion operator produced by the symbolic compiler.
     basis : FockBasis
-        Complete fixed-particle basis with at most 64 fermion modes.
+        Complete or projected fixed-particle basis with at most 64 fermion
+        modes.
     vector : numpy.ndarray
         One-dimensional input state. Its length must equal ``basis.dimension``;
         real and complex numerical dtypes are accepted.
@@ -1066,7 +1171,8 @@ def matvec_numba_serial(
     -------
     numpy.ndarray
         Hamiltonian action in the basis ordering. Serial execution uses
-        source-state scatter and direct combinadic destination ranking.
+        source-state scatter, direct combinadic destination ranking for complete
+        bases, and compiled binary search for projected bases.
     """
     require_numba_supported(compiled, basis, "numba-serial")
 
@@ -1106,6 +1212,7 @@ def matvec_numba_serial(
             return _matvec_numba_serial_pure_monomial_kernel(
                 states,
                 vector,
+            execution_plan.complete_basis,
                 rank_contributions,
                 byte_popcounts,
                 plan.monomial_occupied_masks,
@@ -1117,6 +1224,7 @@ def matvec_numba_serial(
         return _matvec_numba_serial_diagonal_monomial_kernel(
             states,
             vector,
+            execution_plan.complete_basis,
             rank_contributions,
             byte_popcounts,
             plan.number_masks,
@@ -1132,6 +1240,7 @@ def matvec_numba_serial(
         return _matvec_numba_serial_pure_hopping_kernel(
             states,
             vector,
+            execution_plan.complete_basis,
             rank_contributions,
             byte_popcounts,
             plan.simple_hopping_transition_masks,
@@ -1233,6 +1342,7 @@ def matvec_numba_parallel(
         return _matvec_numba_parallel_diagonal_kernel(
             execution_plan.states,
             vector,
+            execution_plan.complete_basis,
             plan.number_masks,
             number_coefficients,
         )
