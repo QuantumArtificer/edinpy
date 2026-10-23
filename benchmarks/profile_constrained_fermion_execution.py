@@ -233,11 +233,15 @@ def _lookup_probe(ham, *, max_states: int, max_masks: int):
     except ImportError:
         return None
 
-    from edinpy.fermion._numba_execution import _basis_row_uint64
+    from edinpy.fermion._numba_execution import (
+        _basis_row_uint64,
+        _get_execution_plan,
+    )
 
+    execution_plan = _get_execution_plan(ham._compiled, ham.sector.basis)
     states = np.asarray(ham.sector.basis._execution_states(), dtype=np.uint64)
     hopping_masks = []
-    plan = ham._compiled._numba_operator_plan
+    plan = execution_plan.operator
     for values in (
         plan.simple_hopping_transition_masks,
         plan.parity_free_hopping_transition_masks,
@@ -260,7 +264,7 @@ def _lookup_probe(ham, *, max_states: int, max_masks: int):
         )
         sampled_states = states[indices]
 
-    projected_lookup = plan.projected_lookup
+    projected_lookup = execution_plan.projected_lookup
     empty_rank = np.empty((0, 0, 0), dtype=np.int64)
     empty_popcounts = np.empty(0, dtype=np.uint8)
 
