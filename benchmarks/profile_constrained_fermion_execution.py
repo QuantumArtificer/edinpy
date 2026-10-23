@@ -55,9 +55,18 @@ def _environment_metadata() -> dict[str, object]:
     }
 
 
-def _label(site: int, population: int) -> tuple[int, int]:
-    """Return canonical coordinates for population-first mode ordering."""
-    return population, site
+def _label(
+    site: int,
+    population: int,
+    *,
+    interleaved_populations: bool,
+) -> tuple[int, int]:
+    """Return coordinates for blocked or interleaved population ordering."""
+    return (
+        (population, site)
+        if interleaved_populations
+        else (site, population)
+    )
 
 
 def _build_expression(
@@ -67,11 +76,20 @@ def _build_expression(
     number_terms: int,
     hopping_groups: int,
     quartic_processes: int,
+    interleaved_populations: bool,
 ):
     """Build a fully lowered mixed Hamiltonian with exact requested term counts."""
     from edinpy import fermion as edf
 
-    labels = [_label(site, population) for site in range(sites) for population in (0, 1)]
+    labels = [
+        _label(
+            site,
+            population,
+            interleaved_populations=interleaved_populations,
+        )
+        for site in range(sites)
+        for population in (0, 1)
+    ]
 
     density_pairs = list(combinations(labels, 2))
     if number_terms > len(density_pairs):
@@ -82,7 +100,14 @@ def _build_expression(
 
     hopping_pairs = []
     for population in (0, 1):
-        population_labels = [_label(site, population) for site in range(sites)]
+        population_labels = [
+            _label(
+                site,
+                population,
+                interleaved_populations=interleaved_populations,
+            )
+            for site in range(sites)
+        ]
         hopping_pairs.extend(combinations(population_labels, 2))
     if hopping_groups > len(hopping_pairs):
         raise ValueError(
@@ -137,10 +162,34 @@ def _build_expression(
         coefficient = 0.012 + 0.0001 * (index % 29)
         term = (
             coefficient
-            * cd(_label(destination_a, 0))
-            * cd(_label(destination_b, 1))
-            * c(_label(source_b, 1))
-            * c(_label(source_a, 0))
+            * cd(
+                _label(
+                    destination_a,
+                    0,
+                    interleaved_populations=interleaved_populations,
+                )
+            )
+            * cd(
+                _label(
+                    destination_b,
+                    1,
+                    interleaved_populations=interleaved_populations,
+                )
+            )
+            * c(
+                _label(
+                    source_b,
+                    1,
+                    interleaved_populations=interleaved_populations,
+                )
+            )
+            * c(
+                _label(
+                    source_a,
+                    0,
+                    interleaved_populations=interleaved_populations,
+                )
+            )
         )
         expression += term + term.dag
 
@@ -152,7 +201,11 @@ def _build_problem(args):
 
     population = edf.DoF(2, name="population", labels=("a", "b"))
     site = edf.DoF(args.sites, name="site")
-    modes = edf.FermionModes(population, site)
+    modes = (
+        edf.FermionModes(population, site)
+        if args.interleaved_populations
+        else edf.FermionModes(site, population)
+    )
 
     start = time.perf_counter()
     sector = (
@@ -176,6 +229,7 @@ def _build_problem(args):
         number_terms=args.number_terms,
         hopping_groups=args.hopping_groups,
         quartic_processes=args.quartic_processes,
+        interleaved_populations=args.interleaved_populations,
     )
     expression_seconds = time.perf_counter() - start
 
@@ -339,6 +393,15 @@ def parse_args():
     parser.add_argument("--repeat", type=int, default=3)
     parser.add_argument("--seed", type=int, default=20261023)
     parser.add_argument(
+        "--interleaved-populations",
+        action="store_true",
+        help=(
+            "Place the constrained population DoF in the fastest-varying mode "
+            "coordinate. The default keeps each population in one contiguous "
+            "occupation-bit block."
+        ),
+    )
+    parser.add_argument(
         "--executions",
         nargs="+",
         choices=("numpy", "numba-serial"),
@@ -376,7 +439,8 @@ def main() -> None:
     print(
         f"sites={args.sites}, modes={2 * args.sites}, "
         f"populations=({args.particles_a}, {args.particles_b}), "
-        f"dimension={dimension:,}"
+        f"dimension={dimension:,}, "
+        f"mode_order={'interleaved' if args.interleaved_populations else 'blocked'}"
     )
     print(f"compiled={ham._compiled.stats}")
     print(
@@ -490,6 +554,7 @@ def main() -> None:
             "quartic_processes": args.quartic_processes,
             "repeat": args.repeat,
             "seed": args.seed,
+            "interleaved_populations": args.interleaved_populations,
         },
         "setup": setup,
         "compiled_kernels": ham._compiled.stats,
