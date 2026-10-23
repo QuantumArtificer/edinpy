@@ -165,6 +165,28 @@ def _projected_spin_problem(*, noncontiguous: bool = False) -> edf.Hamiltonian:
     return edf.Hamiltonian(operator, sector)
 
 
+def test_projected_numba_rank_strategy_matches_basis_geometry():
+    from edinpy.fermion._numba_execution import _get_execution_plan
+
+    contiguous = _projected_spin_problem(noncontiguous=False)
+    contiguous_plan = _get_execution_plan(
+        contiguous._compiled,
+        contiguous.sector.basis,
+    )
+    assert contiguous_plan.lookup_strategy == "factorized-contiguous"
+    assert contiguous_plan.factorized_meta.shape == (2, 4)
+    assert contiguous_plan.factorized_lookup.size == 2 * (1 << 4)
+
+    interleaved = _projected_spin_problem(noncontiguous=True)
+    interleaved_plan = _get_execution_plan(
+        interleaved._compiled,
+        interleaved.sector.basis,
+    )
+    assert interleaved_plan.lookup_strategy == "binary-search"
+    assert interleaved_plan.factorized_meta.size == 0
+    assert interleaved_plan.factorized_lookup.size == 0
+
+
 @pytest.mark.parametrize("noncontiguous", [False, True])
 def test_projected_numba_serial_matches_numpy_and_csc(noncontiguous):
     ham = _projected_spin_problem(noncontiguous=noncontiguous)
