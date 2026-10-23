@@ -51,6 +51,9 @@ class _NumbaOperatorPlan:
     monomial_transition_masks: NDArray[np.uint64]
     monomial_parity_masks: NDArray[np.uint64]
     monomial_coefficients: NDArray[np.generic]
+    monomial_pair_forward_indices: NDArray[np.int64]
+    monomial_pair_reverse_indices: NDArray[np.int64]
+    monomial_unpaired_indices: NDArray[np.int64]
 
 
 @dataclass(frozen=True, slots=True)
@@ -166,6 +169,64 @@ def require_numba_supported(
             f"execution={execution!r} is unavailable for this Hamiltonian: "
             f"{reason}. Use execution='mixed' or execution='numpy'."
         )
+
+
+def _serial_monomial_pairing(kernels) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Pair exactly reversible number-conserving monomials for serial execution.
+
+    The generic symbolic compiler keeps each directed monomial independent.
+    For serial source-state scatter, two kernels that connect the same pair of
+    occupation patterns can share one applicability test and one destination
+    lookup. Kernels are paired only when the reverse occupation pattern is
+    unique; ambiguous cases remain on the ordinary unpaired path.
+    """
+    bases: dict[tuple[int, int, int], list[int]] = {}
+    for index, kernel in enumerate(kernels):
+        key = (
+            int(kernel.required_occupied_mask),
+            int(kernel.required_empty_mask),
+            int(kernel.transition_mask),
+        )
+        bases.setdefault(key, []).append(index)
+
+    paired_forward = []
+    paired_reverse = []
+    used: set[int] = set()
+
+    for index, kernel in enumerate(kernels):
+        if index in used:
+            continue
+        transition = int(kernel.transition_mask)
+        if transition == 0:
+            continue
+
+        occupied = int(kernel.required_occupied_mask)
+        empty = int(kernel.required_empty_mask)
+        reverse_key = (
+            (occupied & ~transition) | (empty & transition),
+            (empty & ~transition) | (occupied & transition),
+            transition,
+        )
+        candidates = [
+            candidate
+            for candidate in bases.get(reverse_key, ())
+            if candidate != index and candidate not in used
+        ]
+        if len(candidates) != 1:
+            continue
+
+        reverse = candidates[0]
+        paired_forward.append(index)
+        paired_reverse.append(reverse)
+        used.add(index)
+        used.add(reverse)
+
+    unpaired = [index for index in range(len(kernels)) if index not in used]
+    return (
+        np.asarray(paired_forward, dtype=np.int64),
+        np.asarray(paired_reverse, dtype=np.int64),
+        np.asarray(unpaired, dtype=np.int64),
+    )
 
 
 def _pack_operator_plan(compiled: "CompiledOperator") -> _NumbaOperatorPlan:
@@ -302,6 +363,11 @@ def _pack_operator_plan(compiled: "CompiledOperator") -> _NumbaOperatorPlan:
         ],
         dtype=coefficient_dtype,
     )
+    (
+        monomial_pair_forward_indices,
+        monomial_pair_reverse_indices,
+        monomial_unpaired_indices,
+    ) = _serial_monomial_pairing(number_conserving_monomials)
 
     plan = _NumbaOperatorPlan(
         number_masks=number_masks,
@@ -324,6 +390,9 @@ def _pack_operator_plan(compiled: "CompiledOperator") -> _NumbaOperatorPlan:
         monomial_transition_masks=monomial_transition_masks,
         monomial_parity_masks=monomial_parity_masks,
         monomial_coefficients=monomial_coefficients,
+        monomial_pair_forward_indices=monomial_pair_forward_indices,
+        monomial_pair_reverse_indices=monomial_pair_reverse_indices,
+        monomial_unpaired_indices=monomial_unpaired_indices,
     )
     compiled._numba_operator_plan = plan
     return plan
