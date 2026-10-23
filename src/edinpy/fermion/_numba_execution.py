@@ -132,7 +132,7 @@ def require_numba_supported(
     compiled : CompiledOperator
         Fermion operator prepared by the symbolic compiler.
     basis : FockBasis
-        Complete fixed-particle basis associated with the Hamiltonian sector.
+        Fixed-particle basis associated with the Hamiltonian sector.
     execution : {"numba-serial", "numba-parallel"}
         Strict execution mode requested by the caller. The value is included in
         any error message so unsupported explicit requests remain easy to
@@ -1212,7 +1212,7 @@ def matvec_numba_serial(
             return _matvec_numba_serial_pure_monomial_kernel(
                 states,
                 vector,
-            execution_plan.complete_basis,
+                execution_plan.complete_basis,
                 rank_contributions,
                 byte_popcounts,
                 plan.monomial_occupied_masks,
@@ -1261,6 +1261,7 @@ def matvec_numba_serial(
     return _matvec_numba_serial_mixed_kernel(
         states,
         vector,
+        execution_plan.complete_basis,
         rank_contributions,
         byte_popcounts,
         plan.number_masks,
