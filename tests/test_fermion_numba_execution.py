@@ -63,8 +63,7 @@ def test_numba_execution_adjoint_matches_explicit_adjoint(execution):
     np.testing.assert_allclose(actual, expected, rtol=1e-13, atol=1e-13)
 
 
-@pytest.mark.parametrize("execution", ["numba-serial", "numba-parallel"])
-def test_strict_numba_execution_rejects_unsupported_bases(execution):
+def test_parallel_numba_still_rejects_projected_basis():
     site = edf.DoF(3, name="site")
     spin = edf.DoF(2, name="spin", labels=("up", "down"))
     modes = edf.FermionModes(site, spin)
@@ -75,8 +74,11 @@ def test_strict_numba_execution_rejects_unsupported_bases(execution):
     )
     projected_ham = edf.Hamiltonian(edf.Number((0, 0), modes=modes), projected)
     with pytest.raises(NotImplementedError, match="projected/constrained"):
-        projected_ham.aslinearoperator(execution=execution)
+        projected_ham.aslinearoperator(execution="numba-parallel")
 
+
+@pytest.mark.parametrize("execution", ["numba-serial", "numba-parallel"])
+def test_strict_numba_execution_rejects_wide_basis(execution):
     wide_modes = edf.FermionModes(edf.DoF(70))
     wide_sector = edf.NParticleSector(wide_modes, N=1).build()
     wide_ham = edf.Hamiltonian(
@@ -87,7 +89,7 @@ def test_strict_numba_execution_rejects_unsupported_bases(execution):
         wide_ham.aslinearoperator(execution=execution)
 
 
-def test_mixed_falls_back_for_projected_basis_and_uses_numba_when_supported():
+def test_mixed_uses_numba_serial_for_projected_and_complete_bases():
     site = edf.DoF(3, name="site")
     spin = edf.DoF(2, name="spin", labels=("up", "down"))
     modes = edf.FermionModes(site, spin)
@@ -108,10 +110,164 @@ def test_mixed_falls_back_for_projected_basis_and_uses_numba_when_supported():
         rtol=1e-13,
         atol=1e-13,
     )
-    assert projected_ham._resolve_execution("mixed") == "numpy"
+    assert projected_ham._resolve_execution("mixed") == "numba-serial"
 
     complete_ham = _complete_problem()
     assert complete_ham._resolve_execution("mixed") == "numba-serial"
+
+
+def _projected_spin_problem(*, noncontiguous: bool = False) -> edf.Hamiltonian:
+    """Return a spin-conserving projected Hamiltonian with mixed kernel families."""
+    site = edf.DoF(4, name="site")
+    spin = edf.DoF(2, name="spin", labels=("up", "down"))
+    modes = (
+        edf.FermionModes(spin, site)
+        if noncontiguous
+        else edf.FermionModes(site, spin)
+    )
+    sector = (
+        edf.NParticleSector(modes, N=4)
+        .project_particles("spin", up=2, down=2)
+        .build()
+    )
+
+    def label(site_index, spin_index):
+        return (
+            (spin_index, site_index)
+            if noncontiguous
+            else (site_index, spin_index)
+        )
+
+    operator = 0
+    for site_index in range(3):
+        for spin_index in (0, 1):
+            operator += edf.Hopping(
+                label(site_index, spin_index),
+                label(site_index + 1, spin_index),
+                -0.41 + (0.07j if spin_index else 0.0),
+                modes,
+            )
+    for site_index in range(4):
+        operator += edf.Hubbard(
+            label(site_index, 0),
+            label(site_index, 1),
+            0.63,
+            modes,
+        )
+    operator += edf.PairHopping(
+        label(0, 0),
+        label(0, 1),
+        label(3, 0),
+        label(3, 1),
+        0.19,
+        modes,
+    )
+    return edf.Hamiltonian(operator, sector)
+
+
+@pytest.mark.parametrize("noncontiguous", [False, True])
+def test_projected_numba_serial_matches_numpy_and_csc(noncontiguous):
+    ham = _projected_spin_problem(noncontiguous=noncontiguous)
+    vector = _vector(ham, complex_valued=True, seed=3301)
+
+    actual = ham.aslinearoperator(execution="numba-serial") @ vector
+    expected_numpy = ham.aslinearoperator(execution="numpy") @ vector
+    expected_csc = ham.matrix @ vector
+
+    np.testing.assert_allclose(actual, expected_numpy, rtol=1e-13, atol=1e-13)
+    np.testing.assert_allclose(actual, expected_csc, rtol=1e-13, atol=1e-13)
+
+
+def test_projected_numba_serial_drops_transitions_leaving_sector():
+    site = edf.DoF(3, name="site")
+    spin = edf.DoF(2, name="spin", labels=("up", "down"))
+    modes = edf.FermionModes(site, spin)
+    sector = (
+        edf.NParticleSector(modes, N=3)
+        .project_particles("spin", up=2, down=1)
+        .build()
+    )
+
+    spin_flip = edf.Hopping((1, 0), (1, 1), 0.73, modes)
+    ham = edf.Hamiltonian(spin_flip, sector)
+    vector = _vector(ham, complex_valued=False, seed=3302)
+
+    actual = ham.aslinearoperator(execution="numba-serial") @ vector
+    expected_numpy = ham.aslinearoperator(execution="numpy") @ vector
+    expected_csc = ham.matrix @ vector
+
+    np.testing.assert_allclose(actual, 0.0, rtol=0.0, atol=0.0)
+    np.testing.assert_allclose(actual, expected_numpy, rtol=0.0, atol=0.0)
+    np.testing.assert_allclose(actual, expected_csc, rtol=0.0, atol=0.0)
+
+
+def test_projected_numba_serial_supports_multiple_population_constraints():
+    site = edf.DoF(2, name="site")
+    spin = edf.DoF(2, name="spin", labels=("up", "down"))
+    layer = edf.DoF(2, name="layer", labels=("top", "bottom"))
+    modes = edf.FermionModes(site, spin, layer)
+    sector = (
+        edf.NParticleSector(modes, N=4)
+        .project_particles("spin", up=2, down=2)
+        .project_particles("layer", top=2, bottom=2)
+        .build()
+    )
+
+    operator = 0
+    for spin_index in (0, 1):
+        for layer_index in (0, 1):
+            operator += edf.Hopping(
+                (0, spin_index, layer_index),
+                (1, spin_index, layer_index),
+                -0.37,
+                modes,
+            )
+    for site_index in (0, 1):
+        for layer_index in (0, 1):
+            operator += edf.Hubbard(
+                (site_index, 0, layer_index),
+                (site_index, 1, layer_index),
+                0.52,
+                modes,
+            )
+
+    ham = edf.Hamiltonian(operator, sector)
+    vector = _vector(ham, complex_valued=False, seed=3303)
+
+    actual = ham.aslinearoperator(execution="numba-serial") @ vector
+    expected_numpy = ham.aslinearoperator(execution="numpy") @ vector
+    expected_csc = ham.matrix @ vector
+
+    assert sector.dimension == 18
+    np.testing.assert_allclose(actual, expected_numpy, rtol=1e-13, atol=1e-13)
+    np.testing.assert_allclose(actual, expected_csc, rtol=1e-13, atol=1e-13)
+
+
+def test_projected_numba_serial_eigsolve_converges():
+    ham = _projected_spin_problem(noncontiguous=True)
+    rng = np.random.default_rng(3304)
+    values, vectors = ham.eigsolve(
+        sparse=True,
+        k=2,
+        which="SA",
+        tol=1e-10,
+        ncv=10,
+        v0=rng.normal(size=ham.sector.dimension),
+        check_hermitian=False,
+        matrix_free=True,
+        execution="numba-serial",
+    )
+
+    diagnostics = ham.solver_diagnostics
+    assert diagnostics.execution_resolved == "numba-serial"
+    assert diagnostics.matvec_calls > 0
+
+    residuals = np.linalg.norm(
+        ham.aslinearoperator(execution="numba-serial") @ vectors
+        - vectors * values,
+        axis=0,
+    )
+    assert np.all(residuals < 1e-8)
 
 
 def test_execution_selector_validation_and_matrix_free_guard():
