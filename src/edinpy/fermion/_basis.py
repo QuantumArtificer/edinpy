@@ -240,6 +240,7 @@ class FockBasis:
         "_states",
         "_state_array",
         "_state_words",
+        "_fixed_group_constraints",
     )
 
     def __init__(self, n_modes, N):
@@ -260,6 +261,7 @@ class FockBasis:
         self._states = None
         self._state_array = None
         self._state_words = None
+        self._fixed_group_constraints = None
 
     @staticmethod
     def _enumerate_states(n_modes, N):
@@ -281,6 +283,7 @@ class FockBasis:
         basis._states = None
         basis._state_array = None
         basis._state_words = None
+        basis._fixed_group_constraints = None
         if basis.n_modes <= 64:
             array = np.fromiter(
                 (int(state) for state in states),
@@ -309,6 +312,20 @@ class FockBasis:
             basis._state_words = words
             basis._dimension = dimension
         return basis
+
+    def _set_fixed_group_constraints(self, groups, counts):
+        """Record disjoint fixed-population groups for execution ranking.
+
+        The metadata is private and does not change basis ordering. It is used
+        only when a projected basis is generated from one fixed occupation
+        pattern over disjoint mode groups.
+        """
+        groups = tuple(tuple(int(mode) for mode in group) for group in groups)
+        counts = tuple(int(count) for count in counts)
+        if len(groups) != len(counts):
+            raise ValueError("Fixed-group metadata must have one count per group.")
+        self._fixed_group_constraints = (groups, counts)
+        return self
 
     def __len__(self):
         """Return the Hilbert-space dimension of the basis."""
