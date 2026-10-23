@@ -1541,6 +1541,9 @@ def matvec_numba_serial(
             plan.monomial_transition_masks,
             plan.monomial_parity_masks,
             monomial_coefficients,
+            plan.monomial_pair_forward_indices,
+            plan.monomial_pair_reverse_indices,
+            plan.monomial_unpaired_indices,
         )
 
     if plan.number_masks.size == 0 and monomial_count == 0:
